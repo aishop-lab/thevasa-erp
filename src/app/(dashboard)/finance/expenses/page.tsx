@@ -5,6 +5,16 @@ import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Cell,
+} from 'recharts'
+import {
   useReactTable,
   getCoreRowModel,
   getFilteredRowModel,
@@ -14,7 +24,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -51,6 +61,13 @@ import {
   ExpenseFormDialog,
   type ExpenseFormValues,
 } from '@/components/finance/expense-form'
+import {
+  DateRangePicker,
+  useDateRangeState,
+} from '@/components/finance/date-range-picker'
+import { StatCard } from '@/components/finance/stat-card'
+import { ComparisonChart } from '@/components/finance/comparison-chart'
+import { useExpensesSummary } from '@/hooks/use-finance'
 import { formatCurrency, formatCompactCurrency } from '@/lib/utils/currency'
 import { formatDate } from '@/lib/utils/date'
 import { cn } from '@/lib/utils'
@@ -93,18 +110,9 @@ interface ExpenseRow {
 // ---------------------------------------------------------------------------
 
 const EXPENSE_CATEGORIES = [
-  'Shipping',
-  'Packaging',
-  'Marketing',
-  'Rent',
-  'Salary',
-  'Utilities',
-  'Raw Materials',
-  'Platform Fees',
-  'Returns & Refunds',
-  'Insurance',
-  'Legal & Compliance',
-  'Other',
+  'Shipping', 'Packaging', 'Marketing', 'Rent', 'Salary', 'Utilities',
+  'Raw Materials', 'Platform Fees', 'Returns & Refunds', 'Insurance',
+  'Legal & Compliance', 'Other',
 ]
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -122,6 +130,41 @@ const CATEGORY_COLORS: Record<string, string> = {
   Other: 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200',
 }
 
+const CATEGORY_BAR_COLORS: Record<string, string> = {
+  Shipping: '#3b82f6',
+  Packaging: '#10b981',
+  Marketing: '#8b5cf6',
+  Rent: '#f59e0b',
+  Salary: '#6366f1',
+  Utilities: '#06b6d4',
+  'Raw Materials': '#f97316',
+  'Platform Fees': '#f43f5e',
+  'Returns & Refunds': '#ef4444',
+  Insurance: '#14b8a6',
+  'Legal & Compliance': '#6b7280',
+  Other: '#64748b',
+}
+
+// ---------------------------------------------------------------------------
+// Chart Tooltip
+// ---------------------------------------------------------------------------
+
+function CategoryTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean
+  payload?: Array<{ value: number; payload: { category: string; fill: string } }>
+}) {
+  if (!active || !payload || payload.length === 0) return null
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2 shadow-md">
+      <p className="text-sm font-medium">{payload[0].payload.category}</p>
+      <p className="text-sm font-semibold tabular-nums">{formatCurrency(payload[0].value)}</p>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Skeleton
 // ---------------------------------------------------------------------------
@@ -131,13 +174,13 @@ function ExpensesSkeleton() {
     <div className="space-y-6">
       <Skeleton className="h-8 w-48" />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Skeleton className="h-24 rounded-lg" />
-        <Skeleton className="h-24 rounded-lg" />
-        <Skeleton className="h-24 rounded-lg" />
+        <Skeleton className="h-32 rounded-lg" />
+        <Skeleton className="h-32 rounded-lg" />
+        <Skeleton className="h-32 rounded-lg" />
       </div>
-      <div className="flex gap-4">
-        <Skeleton className="h-9 w-[180px]" />
-        <Skeleton className="ml-auto h-9 w-[130px]" />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Skeleton className="h-[300px] rounded-lg" />
+        <Skeleton className="h-[300px] rounded-lg" />
       </div>
       <Skeleton className="h-[400px] rounded-lg" />
     </div>
@@ -152,21 +195,31 @@ export default function ExpensesPage() {
   const supabase = createClient()
   const queryClient = useQueryClient()
 
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: 'date', desc: true },
-  ])
+  const [dateRange, setDateRange] = useDateRangeState('this_month')
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'date', desc: true }])
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [formOpen, setFormOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<ExpenseRow | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
-  // Fetch expenses
+  // Analytics from hook
+  const { data: summary } = useExpensesSummary(
+    dateRange.from,
+    dateRange.to,
+    dateRange.granularity,
+    dateRange.compareFrom,
+    dateRange.compareTo
+  )
+
+  // Fetch expenses for the table (date filtered)
   const { data: expenses, isLoading, isError, error } = useQuery({
-    queryKey: ['finance', 'expenses'],
+    queryKey: ['finance', 'expenses', dateRange.from.toISOString(), dateRange.to.toISOString()],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('expenses')
         .select('*')
+        .gte('date', dateRange.from.toISOString())
+        .lte('date', dateRange.to.toISOString())
         .order('date', { ascending: false })
 
       if (error) throw error
@@ -190,11 +243,11 @@ export default function ExpensesPage() {
         invoice_number: values.invoice_number || null,
         receipt_url: values.receipt_url || null,
       })
-
       if (error) throw error
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['finance', 'expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['finance', 'expenses-summary'] })
       setFormOpen(false)
       toast.success('Expense added successfully')
     },
@@ -211,6 +264,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['finance', 'expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['finance', 'expenses-summary'] })
       setDeleteId(null)
       toast.success('Expense deleted')
     },
@@ -226,20 +280,24 @@ export default function ExpensesPage() {
     return expenses.filter((e) => e.category === categoryFilter)
   }, [expenses, categoryFilter])
 
-  // Monthly summary
-  const monthSummary = useMemo(() => {
-    if (!expenses) return { total: 0, gst: 0, count: 0 }
-    const now = new Date()
-    const monthExpenses = expenses.filter((e) => {
-      const d = new Date(e.date)
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-    })
-    return {
-      total: monthExpenses.reduce((sum, e) => sum + e.amount, 0),
-      gst: monthExpenses.reduce((sum, e) => sum + (e.gst_amount ?? 0), 0),
-      count: monthExpenses.length,
-    }
-  }, [expenses])
+  // Category breakdown chart data
+  const categoryChartData = useMemo(() => {
+    if (!summary?.byCategory) return []
+    return summary.byCategory.map((c) => ({
+      category: c.category,
+      amount: c.amount,
+      fill: CATEGORY_BAR_COLORS[c.category] ?? '#6b7280',
+    }))
+  }, [summary?.byCategory])
+
+  // Trend chart data
+  const trendChartData = useMemo(() => {
+    if (!summary?.trendData) return []
+    return summary.trendData.map((t) => ({
+      label: t.label,
+      value: t.amount,
+    }))
+  }, [summary?.trendData])
 
   // Columns
   const columns: ColumnDef<ExpenseRow>[] = useMemo(
@@ -253,8 +311,7 @@ export default function ExpensesPage() {
             className="-ml-3 h-8"
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
-            Date
-            <ArrowUpDown className="ml-2 size-4" />
+            Date <ArrowUpDown className="ml-2 size-4" />
           </Button>
         ),
         cell: ({ row }) => (
@@ -267,12 +324,7 @@ export default function ExpensesPage() {
         cell: ({ row }) => {
           const cat = row.getValue<string>('category')
           return (
-            <Badge
-              className={cn(
-                'border-0',
-                CATEGORY_COLORS[cat] ?? 'bg-gray-100 text-gray-800'
-              )}
-            >
+            <Badge className={cn('border-0', CATEGORY_COLORS[cat] ?? 'bg-gray-100 text-gray-800')}>
               {cat}
             </Badge>
           )
@@ -282,9 +334,7 @@ export default function ExpensesPage() {
         accessorKey: 'description',
         header: 'Description',
         cell: ({ row }) => (
-          <span className="text-sm line-clamp-1 max-w-[250px]">
-            {row.getValue('description')}
-          </span>
+          <span className="text-sm line-clamp-1 max-w-[250px]">{row.getValue('description')}</span>
         ),
       },
       {
@@ -296,14 +346,11 @@ export default function ExpensesPage() {
             className="-ml-3 h-8"
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
-            Amount
-            <ArrowUpDown className="ml-2 size-4" />
+            Amount <ArrowUpDown className="ml-2 size-4" />
           </Button>
         ),
         cell: ({ row }) => (
-          <span className="font-medium tabular-nums">
-            {formatCurrency(row.getValue('amount'))}
-          </span>
+          <span className="font-medium tabular-nums">{formatCurrency(row.getValue('amount'))}</span>
         ),
       },
       {
@@ -312,9 +359,7 @@ export default function ExpensesPage() {
         cell: ({ row }) => (
           <span className="text-sm tabular-nums">
             {formatCurrency(row.original.gst_amount ?? 0)}
-            <span className="ml-1 text-xs text-muted-foreground">
-              ({row.original.gst_rate}%)
-            </span>
+            <span className="ml-1 text-xs text-muted-foreground">({row.original.gst_rate}%)</span>
           </span>
         ),
       },
@@ -324,25 +369,6 @@ export default function ExpensesPage() {
         cell: ({ row }) => (
           <span className="text-sm">{row.getValue('vendor') || '-'}</span>
         ),
-      },
-      {
-        accessorKey: 'invoice_number',
-        header: 'Receipt',
-        cell: ({ row }) =>
-          row.original.receipt_url ? (
-            <a
-              href={row.original.receipt_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-primary hover:underline"
-            >
-              View
-            </a>
-          ) : row.getValue('invoice_number') ? (
-            <span className="font-mono text-xs">{row.getValue('invoice_number')}</span>
-          ) : (
-            <span className="text-sm text-muted-foreground">-</span>
-          ),
       },
       {
         id: 'actions',
@@ -357,20 +383,15 @@ export default function ExpensesPage() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={() => {
-                  setEditingExpense(row.original)
-                  setFormOpen(true)
-                }}
+                onClick={() => { setEditingExpense(row.original); setFormOpen(true) }}
               >
-                <Pencil className="mr-2 size-4" />
-                Edit
+                <Pencil className="mr-2 size-4" /> Edit
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive"
                 onClick={() => setDeleteId(row.original.id)}
               >
-                <Trash2 className="mr-2 size-4" />
-                Delete
+                <Trash2 className="mr-2 size-4" /> Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -391,27 +412,19 @@ export default function ExpensesPage() {
     initialState: { pagination: { pageSize: 20 } },
   })
 
-  if (isLoading) {
-    return <ExpensesSkeleton />
-  }
+  if (isLoading) return <ExpensesSkeleton />
 
   if (isError) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Link
-            href="/finance"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Finance
+          <Link href="/finance" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" /> Finance
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
         </div>
         <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4">
-          <p className="text-sm text-destructive">
-            Failed to load expenses: {(error as Error).message}
-          </p>
+          <p className="text-sm text-destructive">Failed to load expenses: {(error as Error).message}</p>
         </div>
       </div>
     )
@@ -422,66 +435,100 @@ export default function ExpensesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <Link
-            href="/finance"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Finance
+          <Link href="/finance" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" /> Finance
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
         </div>
-        <Button onClick={() => { setEditingExpense(null); setFormOpen(true) }}>
-          <Plus className="mr-2 size-4" />
-          Add Expense
-        </Button>
+        <div className="flex items-center gap-3">
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <Button onClick={() => { setEditingExpense(null); setFormOpen(true) }}>
+            <Plus className="mr-2 size-4" /> Add Expense
+          </Button>
+        </div>
       </div>
 
-      {/* Monthly Summary */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card className="py-5">
-          <CardContent className="pt-0">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">This Month Total</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {formatCurrency(monthSummary.total)}
-                </p>
+        <StatCard
+          title="Total Expenses"
+          value={formatCompactCurrency(summary?.totalExpenses ?? 0)}
+          icon={IndianRupee}
+          iconColor="text-red-600"
+          iconBg="bg-red-50 dark:bg-red-950"
+          changePercent={summary?.expensesChange}
+          invertTrend
+        />
+        <StatCard
+          title="GST (Input Tax)"
+          value={formatCurrency(summary?.totalGst ?? 0)}
+          icon={Receipt}
+          iconColor="text-amber-600"
+          iconBg="bg-amber-50 dark:bg-amber-950"
+        />
+        <StatCard
+          title="Entries"
+          value={String(filteredExpenses.length)}
+          icon={TrendingDown}
+          iconColor="text-blue-600"
+          iconBg="bg-blue-50 dark:bg-blue-950"
+        />
+      </div>
+
+      {/* Expense Trend + Category Breakdown */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ComparisonChart
+          title="Expense Trend"
+          description="Expenses over time"
+          data={trendChartData}
+          type="bar"
+          color="#ef4444"
+        />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Category Breakdown</CardTitle>
+            <CardDescription>Expenses by category</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {categoryChartData.length === 0 ? (
+              <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+                No expenses this period
               </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50 dark:bg-red-950">
-                <IndianRupee className="h-5 w-5 text-red-600" />
+            ) : (
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={categoryChartData}
+                    layout="vertical"
+                    margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => formatCompactCurrency(v)}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="category"
+                      tick={{ fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={100}
+                    />
+                    <Tooltip content={<CategoryTooltip />} />
+                    <Bar dataKey="amount" radius={[0, 4, 4, 0]}>
+                      {categoryChartData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="py-5">
-          <CardContent className="pt-0">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">GST (Input Tax)</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {formatCurrency(monthSummary.gst)}
-                </p>
-              </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950">
-                <Receipt className="h-5 w-5 text-amber-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="py-5">
-          <CardContent className="pt-0">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Entries This Month</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {monthSummary.count}
-                </p>
-              </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950">
-                <TrendingDown className="h-5 w-5 text-blue-600" />
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -495,9 +542,7 @@ export default function ExpensesPage() {
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
             {EXPENSE_CATEGORIES.map((cat) => (
-              <SelectItem key={cat} value={cat}>
-                {cat}
-              </SelectItem>
+              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -511,12 +556,7 @@ export default function ExpensesPage() {
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                   </TableHead>
                 ))}
               </TableRow>
@@ -528,10 +568,7 @@ export default function ExpensesPage() {
                 <TableRow key={row.id}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -553,27 +590,14 @@ export default function ExpensesPage() {
           {filteredExpenses.length} expense{filteredExpenses.length !== 1 ? 's' : ''}
         </p>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            <ChevronLeft className="mr-1 size-4" />
-            Previous
+          <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+            <ChevronLeft className="mr-1 size-4" /> Previous
           </Button>
           <span className="text-sm">
-            Page {table.getState().pagination.pageIndex + 1} of{' '}
-            {table.getPageCount()}
+            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-            <ChevronRight className="ml-1 size-4" />
+          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+            Next <ChevronRight className="ml-1 size-4" />
           </Button>
         </div>
       </div>
@@ -581,13 +605,8 @@ export default function ExpensesPage() {
       {/* Expense Form Dialog */}
       <ExpenseFormDialog
         open={formOpen}
-        onOpenChange={(open) => {
-          setFormOpen(open)
-          if (!open) setEditingExpense(null)
-        }}
-        onSubmit={async (values) => {
-          await createMutation.mutateAsync(values)
-        }}
+        onOpenChange={(open) => { setFormOpen(open); if (!open) setEditingExpense(null) }}
+        onSubmit={async (values) => { await createMutation.mutateAsync(values) }}
         isSubmitting={createMutation.isPending}
         defaultValues={
           editingExpense
@@ -612,18 +631,12 @@ export default function ExpensesPage() {
           <DialogHeader>
             <DialogTitle>Delete Expense</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this expense? This action cannot be
-              undone.
+              Are you sure you want to delete this expense? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteId(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteId && deleteMutation.mutate(deleteId)}
-            >
+            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteId && deleteMutation.mutate(deleteId)}>
               Delete
             </Button>
           </DialogFooter>

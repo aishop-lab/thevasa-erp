@@ -8,12 +8,18 @@ import { PnlReport, type PnlData, type PnlLineItem } from '@/components/finance/
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  DateRangePicker,
+  useDateRangeState,
+} from '@/components/finance/date-range-picker'
+import { WaterfallChart } from '@/components/finance/waterfall-chart'
+import { ComparisonChart } from '@/components/finance/comparison-chart'
+import { usePnlData } from '@/hooks/use-finance'
+import {
+  bucketDates,
+  dateToBucketKey,
+  formatBucketLabel,
+  formatDateRange,
+} from '@/lib/utils/date'
 import { ArrowLeft, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -21,61 +27,11 @@ import { toast } from 'sonner'
 // Types
 // ---------------------------------------------------------------------------
 
-type PeriodType = 'monthly' | 'quarterly'
 type PlatformSplit = { shopify: number; amazon: number }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getMonthOptions() {
-  const months = []
-  const now = new Date()
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    months.push({
-      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
-    })
-  }
-  return months
-}
-
-function getQuarterOptions() {
-  const quarters = []
-  const now = new Date()
-  const currentQuarter = Math.floor(now.getMonth() / 3)
-  for (let i = 0; i < 4; i++) {
-    const q = currentQuarter - i
-    const year = q < 0 ? now.getFullYear() - 1 : now.getFullYear()
-    const adjustedQ = ((q % 4) + 4) % 4
-    quarters.push({
-      value: `${year}-Q${adjustedQ + 1}`,
-      label: `Q${adjustedQ + 1} ${year} (${['Jan-Mar', 'Apr-Jun', 'Jul-Sep', 'Oct-Dec'][adjustedQ]})`,
-    })
-  }
-  return quarters
-}
-
-function getPeriodDateRange(periodType: PeriodType, selectedPeriod: string) {
-  if (periodType === 'monthly') {
-    const [yearStr, monthStr] = selectedPeriod.split('-')
-    const year = parseInt(yearStr)
-    const month = parseInt(monthStr) - 1
-    return {
-      startDate: new Date(year, month, 1),
-      endDate: new Date(year, month + 1, 0, 23, 59, 59),
-    }
-  }
-  // quarterly: "2026-Q1"
-  const parts = selectedPeriod.split('-Q')
-  const year = parseInt(parts[0])
-  const qNum = parseInt(parts[1]) - 1
-  return {
-    startDate: new Date(year, qNum * 3, 1),
-    endDate: new Date(year, qNum * 3 + 3, 0, 23, 59, 59),
-  }
-}
 
 function buildPnlLines(
   revenue: PlatformSplit,
@@ -98,17 +54,11 @@ function buildPnlLines(
   const grossProfitTotal = grossProfitShopify + grossProfitAmazon
 
   const totalOpexShopify =
-    expenses.platform_fees.shopify +
-    expenses.shipping.shopify +
-    expenses.packaging.shopify +
-    expenses.marketing.shopify +
-    expenses.other.shopify
+    expenses.platform_fees.shopify + expenses.shipping.shopify +
+    expenses.packaging.shopify + expenses.marketing.shopify + expenses.other.shopify
   const totalOpexAmazon =
-    expenses.platform_fees.amazon +
-    expenses.shipping.amazon +
-    expenses.packaging.amazon +
-    expenses.marketing.amazon +
-    expenses.other.amazon
+    expenses.platform_fees.amazon + expenses.shipping.amazon +
+    expenses.packaging.amazon + expenses.marketing.amazon + expenses.other.amazon
   const totalOpexTotal = totalOpexShopify + totalOpexAmazon
 
   const netProfitShopify = grossProfitShopify - totalOpexShopify
@@ -125,114 +75,28 @@ function buildPnlLines(
 
   return [
     { label: 'Revenue', isHeader: true, total: 0 },
-    {
-      label: 'Gross Revenue',
-      isSubItem: true,
-      shopify: revenue.shopify,
-      amazon: revenue.amazon,
-      total: revenue.shopify + revenue.amazon,
-    },
-    {
-      label: 'Less: Discounts',
-      isSubItem: true,
-      shopify: -discounts.shopify,
-      amazon: -discounts.amazon,
-      total: -(discounts.shopify + discounts.amazon),
-    },
-    {
-      label: 'Net Revenue',
-      isBold: true,
-      shopify: netRevShopify,
-      amazon: netRevAmazon,
-      total: netRevTotal,
-    },
+    { label: 'Gross Revenue', isSubItem: true, shopify: revenue.shopify, amazon: revenue.amazon, total: revenue.shopify + revenue.amazon },
+    { label: 'Less: Discounts', isSubItem: true, shopify: -discounts.shopify, amazon: -discounts.amazon, total: -(discounts.shopify + discounts.amazon) },
+    { label: 'Net Revenue', isBold: true, shopify: netRevShopify, amazon: netRevAmazon, total: netRevTotal },
     { label: '', total: 0 },
     { label: 'Cost of Goods Sold', isHeader: true, total: 0 },
-    {
-      label: 'COGS',
-      isSubItem: true,
-      shopify: cogs.shopify,
-      amazon: cogs.amazon,
-      total: cogs.shopify + cogs.amazon,
-    },
+    { label: 'COGS', isSubItem: true, shopify: cogs.shopify, amazon: cogs.amazon, total: cogs.shopify + cogs.amazon },
     { label: '', total: 0 },
-    {
-      label: 'Gross Profit',
-      isTotal: true,
-      shopify: grossProfitShopify,
-      amazon: grossProfitAmazon,
-      total: grossProfitTotal,
-    },
+    { label: 'Gross Profit', isTotal: true, shopify: grossProfitShopify, amazon: grossProfitAmazon, total: grossProfitTotal },
     { label: '', total: 0 },
     { label: 'Operating Expenses', isHeader: true, total: 0 },
-    {
-      label: 'Platform Fees',
-      isSubItem: true,
-      shopify: expenses.platform_fees.shopify,
-      amazon: expenses.platform_fees.amazon,
-      total: expenses.platform_fees.shopify + expenses.platform_fees.amazon,
-    },
-    {
-      label: 'Shipping',
-      isSubItem: true,
-      shopify: expenses.shipping.shopify,
-      amazon: expenses.shipping.amazon,
-      total: expenses.shipping.shopify + expenses.shipping.amazon,
-    },
-    {
-      label: 'Packaging',
-      isSubItem: true,
-      shopify: expenses.packaging.shopify,
-      amazon: expenses.packaging.amazon,
-      total: expenses.packaging.shopify + expenses.packaging.amazon,
-    },
-    {
-      label: 'Marketing',
-      isSubItem: true,
-      shopify: expenses.marketing.shopify,
-      amazon: expenses.marketing.amazon,
-      total: expenses.marketing.shopify + expenses.marketing.amazon,
-    },
-    {
-      label: 'Other Expenses',
-      isSubItem: true,
-      shopify: expenses.other.shopify,
-      amazon: expenses.other.amazon,
-      total: expenses.other.shopify + expenses.other.amazon,
-    },
-    {
-      label: 'Total Operating Expenses',
-      isBold: true,
-      shopify: totalOpexShopify,
-      amazon: totalOpexAmazon,
-      total: totalOpexTotal,
-    },
+    { label: 'Platform Fees', isSubItem: true, shopify: expenses.platform_fees.shopify, amazon: expenses.platform_fees.amazon, total: expenses.platform_fees.shopify + expenses.platform_fees.amazon },
+    { label: 'Shipping', isSubItem: true, shopify: expenses.shipping.shopify, amazon: expenses.shipping.amazon, total: expenses.shipping.shopify + expenses.shipping.amazon },
+    { label: 'Packaging', isSubItem: true, shopify: expenses.packaging.shopify, amazon: expenses.packaging.amazon, total: expenses.packaging.shopify + expenses.packaging.amazon },
+    { label: 'Marketing', isSubItem: true, shopify: expenses.marketing.shopify, amazon: expenses.marketing.amazon, total: expenses.marketing.shopify + expenses.marketing.amazon },
+    { label: 'Other Expenses', isSubItem: true, shopify: expenses.other.shopify, amazon: expenses.other.amazon, total: expenses.other.shopify + expenses.other.amazon },
+    { label: 'Total Operating Expenses', isBold: true, shopify: totalOpexShopify, amazon: totalOpexAmazon, total: totalOpexTotal },
     { label: '', total: 0 },
-    {
-      label: 'Net Profit',
-      isTotal: true,
-      shopify: netProfitShopify,
-      amazon: netProfitAmazon,
-      total: netProfitTotal,
-    },
+    { label: 'Net Profit', isTotal: true, shopify: netProfitShopify, amazon: netProfitAmazon, total: netProfitTotal },
     { label: '', total: 0 },
     { label: 'Margins', isHeader: true, total: 0 },
-    {
-      label: 'Gross Margin %',
-      isSubItem: true,
-      isPercentage: true,
-      shopify: grossMarginShopify,
-      amazon: grossMarginAmazon,
-      total: grossMarginTotal,
-    },
-    {
-      label: 'Net Margin %',
-      isSubItem: true,
-      isPercentage: true,
-      shopify: netMarginShopify,
-      amazon: netMarginAmazon,
-      total: netMarginTotal,
-    },
+    { label: 'Gross Margin %', isSubItem: true, isPercentage: true, shopify: grossMarginShopify, amazon: grossMarginAmazon, total: grossMarginTotal },
+    { label: 'Net Margin %', isSubItem: true, isPercentage: true, shopify: netMarginShopify, amazon: netMarginAmazon, total: netMarginTotal },
   ]
 }
 
@@ -268,10 +132,10 @@ function PnlSkeleton() {
     <div className="space-y-6">
       <Skeleton className="h-8 w-48" />
       <div className="flex gap-4">
-        <Skeleton className="h-9 w-[160px]" />
-        <Skeleton className="h-9 w-[200px]" />
+        <Skeleton className="h-10 w-[240px]" />
         <Skeleton className="ml-auto h-9 w-[130px]" />
       </div>
+      <Skeleton className="h-[350px] rounded-lg" />
       <Skeleton className="h-[600px] rounded-lg" />
     </div>
   )
@@ -283,19 +147,17 @@ function PnlSkeleton() {
 
 export default function PnlPage() {
   const supabase = createClient()
-  const [periodType, setPeriodType] = useState<PeriodType>('monthly')
-  const monthOptions = useMemo(() => getMonthOptions(), [])
-  const quarterOptions = useMemo(() => getQuarterOptions(), [])
-  const [selectedPeriod, setSelectedPeriod] = useState(
-    monthOptions[0]?.value ?? ''
-  )
+  const [dateRange, setDateRange] = useDateRangeState('this_month')
 
+  // Summary P&L data from hook
+  const { data: pnlSummary } = usePnlData(dateRange.from, dateRange.to)
+
+  // Full P&L data with platform breakdown for the table
   const { data: rawData, isLoading, isError, error } = useQuery({
-    queryKey: ['finance', 'pnl', periodType, selectedPeriod],
+    queryKey: ['finance', 'pnl-full', dateRange.from.toISOString(), dateRange.to.toISOString()],
     queryFn: async () => {
-      const { startDate, endDate } = getPeriodDateRange(periodType, selectedPeriod)
-      const startIso = startDate.toISOString()
-      const endIso = endDate.toISOString()
+      const startIso = dateRange.from.toISOString()
+      const endIso = dateRange.to.toISOString()
 
       const [revenueRes, expensesRes, feesRes, cogsRes, platformsRes] = await Promise.all([
         supabase
@@ -331,21 +193,71 @@ export default function PnlPage() {
     },
   })
 
-  const pnlData: PnlData = useMemo(() => {
-    const periodLabel =
-      periodType === 'monthly'
-        ? monthOptions.find((m) => m.value === selectedPeriod)?.label ?? selectedPeriod
-        : quarterOptions.find((q) => q.value === selectedPeriod)?.label ?? selectedPeriod
+  // Monthly margin trend
+  const { data: marginTrend } = useQuery({
+    queryKey: ['finance', 'pnl-margin-trend', dateRange.from.toISOString(), dateRange.to.toISOString()],
+    queryFn: async () => {
+      const granularity = 'monthly' as const
+      const buckets = bucketDates(dateRange.from, dateRange.to, granularity)
 
+      const [revRes, expRes, feesRes] = await Promise.all([
+        supabase
+          .from('sales_revenue')
+          .select('date, net_revenue')
+          .gte('date', dateRange.from.toISOString())
+          .lte('date', dateRange.to.toISOString()),
+        supabase
+          .from('expenses')
+          .select('date, amount')
+          .gte('date', dateRange.from.toISOString())
+          .lte('date', dateRange.to.toISOString()),
+        supabase
+          .from('platform_fees')
+          .select('date, amount')
+          .gte('date', dateRange.from.toISOString())
+          .lte('date', dateRange.to.toISOString()),
+      ])
+
+      const revMap = new Map<string, number>()
+      for (const r of revRes.data ?? []) {
+        const key = dateToBucketKey(new Date(r.date), granularity)
+        revMap.set(key, (revMap.get(key) ?? 0) + Number(r.net_revenue ?? 0))
+      }
+
+      const expMap = new Map<string, number>()
+      for (const e of expRes.data ?? []) {
+        const key = dateToBucketKey(new Date((e as any).date), granularity)
+        expMap.set(key, (expMap.get(key) ?? 0) + Number((e as any).amount ?? 0))
+      }
+      for (const f of feesRes.data ?? []) {
+        const key = dateToBucketKey(new Date((f as any).date), granularity)
+        expMap.set(key, (expMap.get(key) ?? 0) + Number((f as any).amount ?? 0))
+      }
+
+      return buckets.map((b) => {
+        const key = dateToBucketKey(b, granularity)
+        const rev = revMap.get(key) ?? 0
+        const exp = expMap.get(key) ?? 0
+        const profit = rev - exp
+        return {
+          label: formatBucketLabel(b, granularity),
+          value: rev > 0 ? (profit / rev) * 100 : 0,
+        }
+      })
+    },
+  })
+
+  const pnlData: PnlData = useMemo(() => {
+    const periodLabel = formatDateRange(dateRange.from, dateRange.to)
     const zero: PlatformSplit = { shopify: 0, amazon: 0 }
 
     if (!rawData?.platforms || rawData.platforms.length === 0) {
       return {
         period: periodLabel,
-        lines: buildPnlLines(
-          { ...zero }, { ...zero }, { ...zero },
-          { platform_fees: { ...zero }, shipping: { ...zero }, packaging: { ...zero }, marketing: { ...zero }, other: { ...zero } }
-        ),
+        lines: buildPnlLines({ ...zero }, { ...zero }, { ...zero }, {
+          platform_fees: { ...zero }, shipping: { ...zero }, packaging: { ...zero },
+          marketing: { ...zero }, other: { ...zero },
+        }),
       }
     }
 
@@ -360,7 +272,6 @@ export default function PnlPage() {
       return null
     }
 
-    // Aggregate revenue by platform
     const rev: PlatformSplit = { shopify: 0, amazon: 0 }
     const disc: PlatformSplit = { shopify: 0, amazon: 0 }
     for (const r of rawData.revenue) {
@@ -371,7 +282,6 @@ export default function PnlPage() {
       }
     }
 
-    // Aggregate COGS (no platform_id — split proportionally by revenue)
     const totalCogs = rawData.cogs.reduce((sum: number, c: any) => sum + Number(c.total_cost), 0)
     const totalRev = rev.shopify + rev.amazon
     const cogsRatio = totalRev > 0 ? rev.amazon / totalRev : 0.5
@@ -380,14 +290,12 @@ export default function PnlPage() {
       amazon: Math.round(totalCogs * cogsRatio),
     }
 
-    // Aggregate platform fees
     const platformFees: PlatformSplit = { shopify: 0, amazon: 0 }
     for (const f of rawData.fees) {
       const p = toPlatform(f.platform_id)
       if (p) platformFees[p] += Number(f.amount)
     }
 
-    // Aggregate expenses by category (no platform_id — split proportionally)
     const expByCat: Record<string, PlatformSplit> = {
       shipping: { shopify: 0, amazon: 0 },
       packaging: { shopify: 0, amazon: 0 },
@@ -397,7 +305,6 @@ export default function PnlPage() {
     for (const e of rawData.expenses) {
       const cat = ['shipping', 'packaging', 'marketing'].includes((e as any).category) ? (e as any).category : 'other'
       const amt = Number((e as any).amount)
-      // Split proportionally by revenue
       expByCat[cat].shopify += Math.round(amt * (1 - cogsRatio))
       expByCat[cat].amazon += Math.round(amt * cogsRatio)
     }
@@ -412,29 +319,34 @@ export default function PnlPage() {
         other: expByCat.other,
       }),
     }
-  }, [rawData, periodType, selectedPeriod, monthOptions, quarterOptions])
+  }, [rawData, dateRange.from, dateRange.to])
 
-  if (isLoading) {
-    return <PnlSkeleton />
-  }
+  // Waterfall items
+  const waterfallItems = useMemo(() => {
+    if (!pnlSummary) return []
+    return [
+      { label: 'Gross Rev', value: pnlSummary.grossRevenue, type: 'positive' as const },
+      { label: 'Discounts', value: -pnlSummary.discounts, type: 'negative' as const },
+      { label: 'COGS', value: -pnlSummary.cogs, type: 'negative' as const },
+      { label: 'Platform Fees', value: -pnlSummary.platformFees, type: 'negative' as const },
+      { label: 'OpEx', value: -pnlSummary.operatingExpenses, type: 'negative' as const },
+      { label: 'Net Profit', value: pnlSummary.netProfit, type: 'total' as const },
+    ]
+  }, [pnlSummary])
+
+  if (isLoading) return <PnlSkeleton />
 
   if (isError) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Link
-            href="/finance"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Finance
+          <Link href="/finance" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" /> Finance
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">Profit & Loss</h1>
         </div>
         <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4">
-          <p className="text-sm text-destructive">
-            Failed to load P&L data: {(error as Error).message}
-          </p>
+          <p className="text-sm text-destructive">Failed to load P&L data: {(error as Error).message}</p>
         </div>
       </div>
     )
@@ -445,62 +357,48 @@ export default function PnlPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <Link
-            href="/finance"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Finance
+          <Link href="/finance" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" /> Finance
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">Profit & Loss Report</h1>
         </div>
         <div className="flex items-center gap-3">
-          <Select
-            value={periodType}
-            onValueChange={(v) => {
-              setPeriodType(v as PeriodType)
-              if (v === 'monthly') {
-                setSelectedPeriod(monthOptions[0]?.value ?? '')
-              } else {
-                setSelectedPeriod(quarterOptions[0]?.value ?? '')
-              }
-            }}
-          >
-            <SelectTrigger className="w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="monthly">Monthly</SelectItem>
-              <SelectItem value="quarterly">Quarterly</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-            <SelectTrigger className="w-[220px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(periodType === 'monthly' ? monthOptions : quarterOptions).map(
-                (opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                )
-              )}
-            </SelectContent>
-          </Select>
-
-          <Button
-            variant="outline"
-            onClick={() => exportToCsv(pnlData)}
-          >
-            <Download className="mr-2 size-4" />
-            Export CSV
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <Button variant="outline" onClick={() => exportToCsv(pnlData)}>
+            <Download className="mr-2 size-4" /> Export CSV
           </Button>
         </div>
       </div>
 
-      {/* P&L Report */}
+      {/* Waterfall Chart */}
+      <WaterfallChart items={waterfallItems} />
+
+      {/* Charts Row */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Margin Trend */}
+        <ComparisonChart
+          title="Net Margin Trend"
+          description="Net margin % over time"
+          data={(marginTrend ?? []).map((p) => ({ label: p.label, value: p.value }))}
+          type="line"
+          color="#8b5cf6"
+          valueFormatter={(v) => `${v.toFixed(1)}%`}
+        />
+
+        {/* P&L Summary Card */}
+        <WaterfallChart
+          items={[
+            { label: 'Net Revenue', value: pnlSummary?.netRevenue ?? 0, type: 'positive' },
+            { label: 'COGS', value: -(pnlSummary?.cogs ?? 0), type: 'negative' },
+            { label: 'Gross Profit', value: pnlSummary?.grossProfit ?? 0, type: 'total' },
+          ]}
+          title="Gross Profit Breakdown"
+          description="Revenue to gross profit"
+          height={280}
+        />
+      </div>
+
+      {/* P&L Report Table */}
       <PnlReport data={pnlData} showPlatformColumns />
     </div>
   )

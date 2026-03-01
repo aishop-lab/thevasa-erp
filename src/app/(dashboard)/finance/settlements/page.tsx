@@ -23,7 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatCurrency } from '@/lib/utils/currency'
+import {
+  DateRangePicker,
+  useDateRangeState,
+} from '@/components/finance/date-range-picker'
+import { StatCard } from '@/components/finance/stat-card'
+import { formatCurrency, formatCompactCurrency } from '@/lib/utils/currency'
 import { cn } from '@/lib/utils'
 import {
   ArrowLeft,
@@ -36,6 +41,8 @@ import {
   ShoppingBag,
   Store,
   Landmark,
+  IndianRupee,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -75,26 +82,10 @@ interface Settlement {
 // ---------------------------------------------------------------------------
 
 const statusConfig = {
-  pending: {
-    label: 'Pending',
-    icon: Clock,
-    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-  },
-  processing: {
-    label: 'Processing',
-    icon: Clock,
-    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  },
-  paid: {
-    label: 'Paid',
-    icon: CheckCircle2,
-    className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-  },
-  discrepancy: {
-    label: 'Discrepancy',
-    icon: AlertTriangle,
-    className: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-  },
+  pending: { label: 'Pending', icon: Clock, className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' },
+  processing: { label: 'Processing', icon: Clock, className: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
+  paid: { label: 'Paid', icon: CheckCircle2, className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' },
+  discrepancy: { label: 'Discrepancy', icon: AlertTriangle, className: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' },
 }
 
 const txnStatusColors: Record<string, string> = {
@@ -109,32 +100,24 @@ const platformConfig = {
   shopify: { label: 'Shopify', icon: Store, color: 'text-green-600' },
 }
 
-function formatDateRange(start: string, end: string) {
+function formatSettlementDateRange(start: string, end: string) {
   const s = new Date(start)
   const e = new Date(end)
   return `${s.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - ${e.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
 }
 
 function formatShortDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
+  return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function exportSettlementsCsv(data: Settlement[]) {
-  const header =
-    'ID,Platform,Period,Orders,Sales,Fees,Refunds,Net Amount,Payout,Status\n'
+  const header = 'ID,Platform,Period,Orders,Sales,Fees,Refunds,Net Amount,Payout,Status\n'
   const rows = data
-    .map(
-      (s) => {
-        const pCfg = platformConfig[s.platform] ?? { label: s.platform }
-        return `"${s.id}","${pCfg.label}","${formatDateRange(s.cycle_start, s.cycle_end)}",${s.order_count},${s.total_sales},${s.total_fees},${s.total_refunds},${s.net_amount},${s.payout_amount ?? ''},${s.status}`
-      }
-    )
+    .map((s) => {
+      const pCfg = (platformConfig as any)[s.platform] ?? { label: s.platform }
+      return `"${s.id}","${pCfg.label}","${formatSettlementDateRange(s.cycle_start, s.cycle_end)}",${s.order_count},${s.total_sales},${s.total_fees},${s.total_refunds},${s.net_amount},${s.payout_amount ?? ''},${s.status}`
+    })
     .join('\n')
-
   const csv = header + rows
   const blob = new Blob([csv], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
@@ -158,7 +141,6 @@ function TransactionDetails({ transactions }: { transactions: SettlementTransact
       </div>
     )
   }
-
   return (
     <div className="bg-muted/30 p-4">
       <h4 className="mb-3 text-sm font-semibold">Settlement Transactions</h4>
@@ -185,23 +167,13 @@ function TransactionDetails({ transactions }: { transactions: SettlementTransact
               >
                 <TableCell className="font-mono text-sm">{txn.order_number}</TableCell>
                 <TableCell className="text-sm capitalize">{txn.type}</TableCell>
-                <TableCell
-                  className={cn(
-                    'text-right tabular-nums text-sm',
-                    txn.amount < 0 && 'text-red-600'
-                  )}
-                >
+                <TableCell className={cn('text-right tabular-nums text-sm', txn.amount < 0 && 'text-red-600')}>
                   {formatCurrency(txn.amount)}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
                   {txn.fee > 0 ? formatCurrency(txn.fee) : '-'}
                 </TableCell>
-                <TableCell
-                  className={cn(
-                    'text-right tabular-nums text-sm font-medium',
-                    txn.net_amount < 0 && 'text-red-600'
-                  )}
-                >
+                <TableCell className={cn('text-right tabular-nums text-sm font-medium', txn.net_amount < 0 && 'text-red-600')}>
                   {formatCurrency(txn.net_amount)}
                 </TableCell>
                 <TableCell>
@@ -224,31 +196,28 @@ function TransactionDetails({ transactions }: { transactions: SettlementTransact
 
 export default function SettlementsPage() {
   const supabase = createClient()
+  const [dateRange, setDateRange] = useDateRangeState('last_90_days')
   const [platformFilter, setPlatformFilter] = useState<string>('all')
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
 
   const { data: settlements, isLoading } = useQuery({
-    queryKey: ['finance', 'settlements'],
+    queryKey: ['finance', 'settlements', dateRange.from.toISOString(), dateRange.to.toISOString()],
     queryFn: async () => {
-      // Fetch platforms for name mapping
-      const { data: platforms } = await supabase
-        .from('platforms')
-        .select('id, name')
-
+      const { data: platforms } = await supabase.from('platforms').select('id, name')
       const platformIdToName = new Map<string, string>(
         (platforms ?? []).map((p: any) => [p.id, (p.name as string).toLowerCase()])
       )
 
-      // Fetch real settlement cycles
       const { data: cycles, error } = await supabase
         .from('settlement_cycles')
         .select('*')
+        .gte('period_start', dateRange.from.toISOString())
+        .lte('period_end', dateRange.to.toISOString())
         .order('period_end', { ascending: false })
 
       if (error) throw error
       if (!cycles || cycles.length === 0) return []
 
-      // Fetch transactions for all cycles
       const cycleIds = cycles.map((c: any) => c.id)
       const { data: transactions } = await supabase
         .from('settlement_transactions')
@@ -276,12 +245,8 @@ export default function SettlementsPage() {
         const totalAmount = Number(c.total_amount ?? 0)
         const cycleTxns = txnsByCycle.get(c.id) ?? []
 
-        // Map DB status to UI status
         const statusMap: Record<string, Settlement['status']> = {
-          pending: 'pending',
-          processing: 'processing',
-          completed: 'paid',
-          disputed: 'discrepancy',
+          pending: 'pending', processing: 'processing', completed: 'paid', disputed: 'discrepancy',
         }
 
         return {
@@ -318,12 +283,8 @@ export default function SettlementsPage() {
       fees: filtered.reduce((sum, s) => sum + s.total_fees, 0),
       refunds: filtered.reduce((sum, s) => sum + s.total_refunds, 0),
       net: filtered.reduce((sum, s) => sum + s.net_amount, 0),
-      paid: filtered
-        .filter((s) => s.status === 'paid' || s.status === 'discrepancy')
-        .reduce((sum, s) => sum + (s.payout_amount ?? 0), 0),
-      pending: filtered
-        .filter((s) => s.status === 'pending' || s.status === 'processing')
-        .reduce((sum, s) => sum + s.net_amount, 0),
+      paid: filtered.filter((s) => s.status === 'paid' || s.status === 'discrepancy').reduce((sum, s) => sum + (s.payout_amount ?? 0), 0),
+      pending: filtered.filter((s) => s.status === 'pending' || s.status === 'processing').reduce((sum, s) => sum + s.net_amount, 0),
       discrepancies: filtered.filter((s) => s.status === 'discrepancy').length,
     }
   }, [filtered])
@@ -338,7 +299,7 @@ export default function SettlementsPage() {
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
+            <Skeleton key={i} className="h-32 rounded-lg" />
           ))}
         </div>
         <Skeleton className="h-[400px] rounded-lg" />
@@ -353,18 +314,13 @@ export default function SettlementsPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <Link
-            href="/finance"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Finance
+          <Link href="/finance" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" /> Finance
           </Link>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Settlement Reconciliation
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">Settlement Reconciliation</h1>
         </div>
         <div className="flex items-center gap-3">
+          <DateRangePicker value={dateRange} onChange={setDateRange} showComparison={false} />
           <Select value={platformFilter} onValueChange={setPlatformFilter}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="All Platforms" />
@@ -376,26 +332,20 @@ export default function SettlementsPage() {
             </SelectContent>
           </Select>
           {hasData && (
-            <Button
-              variant="outline"
-              onClick={() => settlements && exportSettlementsCsv(filtered)}
-            >
-              <Download className="mr-2 size-4" />
-              Export
+            <Button variant="outline" onClick={() => settlements && exportSettlementsCsv(filtered)}>
+              <Download className="mr-2 size-4" /> Export
             </Button>
           )}
         </div>
       </div>
 
       {!hasData ? (
-        /* Empty State */
         <Card className="py-16">
           <CardContent className="flex flex-col items-center justify-center text-center">
             <Landmark className="mb-4 size-12 text-muted-foreground/50" />
             <h3 className="mb-2 text-lg font-semibold">No settlement data yet</h3>
             <p className="max-w-md text-sm text-muted-foreground">
               Settlement cycles will appear here once platform payouts are imported.
-              Amazon and Shopify settlement reports can be synced to track reconciliation.
             </p>
           </CardContent>
         </Card>
@@ -403,53 +353,34 @@ export default function SettlementsPage() {
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <Card className="py-5">
-              <CardContent className="pt-0">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Total Net Amount</p>
-                  <p className="text-2xl font-bold tabular-nums">
-                    {formatCurrency(totals.net)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Sales {formatCurrency(totals.sales)} - Fees{' '}
-                    {formatCurrency(totals.fees)}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="py-5">
-              <CardContent className="pt-0">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Paid Out</p>
-                  <p className="text-2xl font-bold tabular-nums text-emerald-600">
-                    {formatCurrency(totals.paid)}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="py-5">
-              <CardContent className="pt-0">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Pending Payout</p>
-                  <p className="text-2xl font-bold tabular-nums text-amber-600">
-                    {formatCurrency(totals.pending)}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="py-5">
-              <CardContent className="pt-0">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Discrepancies</p>
-                  <p className="text-2xl font-bold tabular-nums text-red-600">
-                    {totals.discrepancies}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            <StatCard
+              title="Total Net Amount"
+              value={formatCompactCurrency(totals.net)}
+              icon={IndianRupee}
+              iconColor="text-blue-600"
+              iconBg="bg-blue-50 dark:bg-blue-950"
+            />
+            <StatCard
+              title="Paid Out"
+              value={formatCompactCurrency(totals.paid)}
+              icon={CheckCircle2}
+              iconColor="text-emerald-600"
+              iconBg="bg-emerald-50 dark:bg-emerald-950"
+            />
+            <StatCard
+              title="Pending Payout"
+              value={formatCompactCurrency(totals.pending)}
+              icon={Clock}
+              iconColor="text-amber-600"
+              iconBg="bg-amber-50 dark:bg-amber-950"
+            />
+            <StatCard
+              title="Discrepancies"
+              value={String(totals.discrepancies)}
+              icon={AlertCircle}
+              iconColor="text-red-600"
+              iconBg="bg-red-50 dark:bg-red-950"
+            />
           </div>
 
           {/* Settlements Table */}
@@ -457,8 +388,7 @@ export default function SettlementsPage() {
             <CardHeader>
               <CardTitle>Settlement Cycles</CardTitle>
               <CardDescription>
-                Click a row to expand and see individual transactions. Discrepant items
-                are highlighted in red.
+                Click a row to expand and see individual transactions.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -480,24 +410,19 @@ export default function SettlementsPage() {
                   <TableBody>
                     {filtered.length === 0 ? (
                       <TableRow>
-                        <TableCell
-                          colSpan={9}
-                          className="h-24 text-center text-muted-foreground"
-                        >
+                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                           No settlements found for this filter.
                         </TableCell>
                       </TableRow>
                     ) : (
                       filtered.map((s) => {
-                        const pCfg = platformConfig[s.platform] ?? platformConfig.amazon_fba
+                        const pCfg = (platformConfig as any)[s.platform] ?? platformConfig.amazon_fba
                         const statusCfg = statusConfig[s.status] ?? statusConfig.pending
                         const PlatformIcon = pCfg.icon
                         const StatusIcon = statusCfg.icon
                         const isExpanded = expandedRows[s.id] ?? false
-                        const variance =
-                          s.payout_amount !== null ? s.payout_amount - s.net_amount : null
-                        const hasVariance =
-                          variance !== null && Math.abs(variance) > 1
+                        const variance = s.payout_amount !== null ? s.payout_amount - s.net_amount : null
+                        const hasVariance = variance !== null && Math.abs(variance) > 1
 
                         return (
                           <>{/* eslint-disable-next-line react/jsx-key */}
@@ -511,36 +436,20 @@ export default function SettlementsPage() {
                               onClick={() => toggleRow(s.id)}
                             >
                               <TableCell>
-                                {isExpanded ? (
-                                  <ChevronDown className="size-4 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="size-4 text-muted-foreground" />
-                                )}
+                                {isExpanded ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
                               </TableCell>
-                              <TableCell className="font-mono text-sm">
-                                {s.id}
-                              </TableCell>
+                              <TableCell className="font-mono text-sm">{s.id}</TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-2">
-                                  <PlatformIcon
-                                    className={cn('size-4', pCfg.color)}
-                                  />
+                                  <PlatformIcon className={cn('size-4', pCfg.color)} />
                                   <span className="text-sm">{pCfg.label}</span>
                                 </div>
                               </TableCell>
-                              <TableCell className="text-sm">
-                                {formatDateRange(s.cycle_start, s.cycle_end)}
-                              </TableCell>
-                              <TableCell className="text-right font-medium tabular-nums">
-                                {formatCurrency(s.net_amount)}
-                              </TableCell>
+                              <TableCell className="text-sm">{formatSettlementDateRange(s.cycle_start, s.cycle_end)}</TableCell>
+                              <TableCell className="text-right font-medium tabular-nums">{formatCurrency(s.net_amount)}</TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {s.payout_amount !== null ? (
-                                  <span
-                                    className={cn(
-                                      hasVariance && 'text-red-600 font-medium'
-                                    )}
-                                  >
+                                  <span className={cn(hasVariance && 'text-red-600 font-medium')}>
                                     {formatCurrency(s.payout_amount)}
                                   </span>
                                 ) : (
@@ -548,25 +457,15 @@ export default function SettlementsPage() {
                                 )}
                               </TableCell>
                               <TableCell>
-                                <Badge
-                                  className={cn('gap-1 border-0', statusCfg.className)}
-                                >
+                                <Badge className={cn('gap-1 border-0', statusCfg.className)}>
                                   <StatusIcon className="size-3" />
                                   {statusCfg.label}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {hasVariance ? (
-                                  <span
-                                    className={cn(
-                                      'font-medium',
-                                      variance! < 0
-                                        ? 'text-red-600'
-                                        : 'text-green-600'
-                                    )}
-                                  >
-                                    {variance! > 0 ? '+' : ''}
-                                    {formatCurrency(variance!)}
+                                  <span className={cn('font-medium', variance! < 0 ? 'text-red-600' : 'text-green-600')}>
+                                    {variance! > 0 ? '+' : ''}{formatCurrency(variance!)}
                                   </span>
                                 ) : s.payout_amount !== null ? (
                                   <span className="text-green-600 text-sm">OK</span>
@@ -576,9 +475,7 @@ export default function SettlementsPage() {
                               </TableCell>
                               <TableCell>
                                 <div className="space-y-0.5 text-xs">
-                                  <p className="text-muted-foreground">
-                                    Expected: {formatShortDate(s.expected_payout_date)}
-                                  </p>
+                                  <p className="text-muted-foreground">Expected: {formatShortDate(s.expected_payout_date)}</p>
                                   {s.payout_date ? (
                                     <p>Received: {formatShortDate(s.payout_date)}</p>
                                   ) : (
