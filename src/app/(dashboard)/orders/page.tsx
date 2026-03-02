@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { OrderTable, type OrderRow } from '@/components/orders/order-table'
 import { OrderFiltersBar, type OrderFilters } from '@/components/orders/order-filters'
+import { OrderStatusCards } from '@/components/orders/order-status-cards'
 import { OrderTableSkeleton } from '@/components/orders/order-table'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -46,6 +47,13 @@ export default function OrdersPage() {
     },
   })
 
+  const handleStatusCardClick = (status: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      status: prev.status === status ? 'all' : status,
+    }))
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -54,6 +62,11 @@ export default function OrdersPage() {
           <p className="text-muted-foreground">
             Unified order management across all platforms
           </p>
+        </div>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-9">
+          {Array.from({ length: 9 }).map((_, i) => (
+            <Skeleton key={i} className="h-[88px]" />
+          ))}
         </div>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <Skeleton className="h-9 w-[300px]" />
@@ -93,6 +106,13 @@ export default function OrdersPage() {
           Unified order management across all platforms
         </p>
       </div>
+
+      {/* Status breakdown cards */}
+      <OrderStatusCards
+        orders={orders ?? []}
+        activeStatus={filters.status}
+        onStatusClick={handleStatusCardClick}
+      />
 
       {/* Filters */}
       <OrderFiltersBar filters={filters} onFiltersChange={setFilters} />
