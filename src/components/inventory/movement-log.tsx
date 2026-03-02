@@ -4,9 +4,7 @@ import { useMemo, useState } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
-  getFilteredRowModel,
   getSortedRowModel,
-  getPaginationRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
@@ -126,16 +124,23 @@ export const MOVEMENT_TYPES: { value: MovementType; label: string }[] = [
 // Data hooks
 // ---------------------------------------------------------------------------
 
+interface MovementDataResult {
+  data: MovementRow[]
+  totalCount: number
+}
+
 function useMovements(
   dateFrom: string,
   dateTo: string,
   movementTypeFilter: MovementType | 'all',
   warehouseFilter: string,
-  productFilter: string
+  productFilter: string,
+  page: number,
+  pageSize: number
 ) {
   const supabase = createClient()
 
-  return useQuery<MovementRow[]>({
+  return useQuery<MovementDataResult>({
     queryKey: [
       'stock_movements',
       dateFrom,
@@ -143,12 +148,15 @@ function useMovements(
       movementTypeFilter,
       warehouseFilter,
       productFilter,
+      page,
+      pageSize,
     ],
     queryFn: async () => {
       let query = supabase
         .from('stock_movements')
         .select(
-          '*, variant:product_variants(variant_sku, product:products(name), size:size_masters(name), color:color_masters(name)), warehouse:warehouses(name)'
+          '*, variant:product_variants(variant_sku, product:products(name), size:size_masters(name), color:color_masters(name)), warehouse:warehouses(name)',
+          { count: 'exact' }
         )
         .order('created_at', { ascending: false })
 
@@ -168,22 +176,48 @@ function useMovements(
         query = query.eq('warehouse_id', warehouseFilter)
       }
 
-      const { data, error } = await query
-      if (error) throw error
-
-      let results = (data as unknown as MovementRow[]) ?? []
-
-      // Client-side product name filter if provided
+      // Product/SKU search: find matching variant IDs server-side
       if (productFilter) {
-        const lowerFilter = productFilter.toLowerCase()
-        results = results.filter(
-          (r) =>
-            r.variant?.product?.name?.toLowerCase().includes(lowerFilter) ||
-            r.variant?.variant_sku?.toLowerCase().includes(lowerFilter)
-        )
+        const { data: skuMatches } = await supabase
+          .from('product_variants')
+          .select('id')
+          .ilike('variant_sku', `%${productFilter}%`)
+
+        const { data: productMatches } = await supabase
+          .from('products')
+          .select('id')
+          .ilike('name', `%${productFilter}%`)
+
+        let variantIds = (skuMatches ?? []).map((v) => v.id)
+
+        if (productMatches?.length) {
+          const { data: productVariants } = await supabase
+            .from('product_variants')
+            .select('id')
+            .in('product_id', productMatches.map((p) => p.id))
+
+          const extraIds = (productVariants ?? []).map((v) => v.id)
+          variantIds = [...new Set([...variantIds, ...extraIds])]
+        }
+
+        if (variantIds.length === 0) {
+          return { data: [], totalCount: 0 }
+        }
+        query = query.in('variant_id', variantIds)
       }
 
-      return results
+      // Server-side pagination
+      const from = page * pageSize
+      const to = from + pageSize - 1
+      query = query.range(from, to)
+
+      const { data, error, count } = await query
+      if (error) throw error
+
+      return {
+        data: (data as unknown as MovementRow[]) ?? [],
+        totalCount: count ?? 0,
+      }
     },
   })
 }
@@ -234,15 +268,31 @@ export function MovementLog({
   warehouseFilter,
   productFilter,
 }: MovementLogProps) {
-  const { data: movements, isLoading, error } = useMovements(
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(25)
+
+  // Reset page when filters change
+  const filterKey = `${dateFrom}-${dateTo}-${movementTypeFilter}-${warehouseFilter}-${productFilter}`
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey)
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
+    setPage(0)
+  }
+
+  const { data: movementResult, isLoading, error } = useMovements(
     dateFrom,
     dateTo,
     movementTypeFilter,
     warehouseFilter,
-    productFilter
+    productFilter,
+    page,
+    pageSize
   )
 
-  const [sorting, setSorting] = useState<SortingState>([])
+  const movements = movementResult?.data
+  const totalCount = movementResult?.totalCount ?? 0
+  const totalPages = Math.ceil(totalCount / pageSize)
 
   const columns = useMemo<ColumnDef<MovementRow>[]>(
     () => [
@@ -378,12 +428,9 @@ export function MovementLog({
     },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: {
-      pagination: { pageSize: 25 },
-    },
+    manualPagination: true,
+    pageCount: totalPages,
   })
 
   if (isLoading) return <MovementLogSkeleton />
@@ -399,7 +446,7 @@ export function MovementLog({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {table.getFilteredRowModel().rows.length} movements
+        {totalCount} movements
       </p>
 
       {/* Table */}
@@ -452,13 +499,15 @@ export function MovementLog({
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Page {table.getState().pagination.pageIndex + 1} of{' '}
-          {table.getPageCount()}
+          Showing {totalCount > 0 ? page * pageSize + 1 : 0}-{Math.min((page + 1) * pageSize, totalCount)} of {totalCount} movements
         </p>
         <div className="flex items-center gap-2">
           <Select
-            value={String(table.getState().pagination.pageSize)}
-            onValueChange={(val) => table.setPageSize(Number(val))}
+            value={String(pageSize)}
+            onValueChange={(val) => {
+              setPageSize(Number(val))
+              setPage(0)
+            }}
           >
             <SelectTrigger className="w-[110px]">
               <SelectValue />
@@ -474,17 +523,20 @@ export function MovementLog({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page <= 0}
           >
             <ChevronLeft className="size-4" />
             Previous
           </Button>
+          <span className="text-sm">
+            Page {page + 1} of {totalPages}
+          </span>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page + 1 >= totalPages}
           >
             Next
             <ChevronRight className="size-4" />

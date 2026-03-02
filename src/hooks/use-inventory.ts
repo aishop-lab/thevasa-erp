@@ -26,8 +26,9 @@ export interface DiscrepancyFilters {
 export interface UpdateStockInput {
   warehouseId: string;
   variantId: string;
-  quantity: number;
-  movementType: "adjustment" | "inbound" | "outbound" | "return" | "transfer";
+  /** Signed quantity change: positive to add, negative to remove */
+  quantityDelta: number;
+  movementType: "adjustment" | "purchase" | "damage" | "return" | "transfer_in" | "transfer_out";
   reason?: string;
   referenceId?: string;
 }
@@ -192,14 +193,30 @@ export function useUpdateStock() {
 
   return useMutation({
     mutationFn: async (input: UpdateStockInput) => {
-      // 1. Upsert warehouse stock
+      // 1. Fetch current stock to calculate new values
+      const { data: currentStock } = await supabase
+        .from("warehouse_stock")
+        .select("id, qty_on_hand, qty_reserved")
+        .eq("warehouse_id", input.warehouseId)
+        .eq("variant_id", input.variantId)
+        .single();
+
+      const currentOnHand = currentStock?.qty_on_hand ?? 0;
+      const currentReserved = currentStock?.qty_reserved ?? 0;
+      const newOnHand = currentOnHand + input.quantityDelta;
+
+      if (newOnHand < 0) throw new Error("Stock cannot go below zero");
+
+      // 2. Upsert warehouse stock with correct columns
+      // Note: qty_available is a GENERATED column (qty_on_hand - qty_reserved), not set directly
       const { data: stockData, error: stockError } = await supabase
         .from("warehouse_stock")
         .upsert(
           {
             warehouse_id: input.warehouseId,
             variant_id: input.variantId,
-            quantity: input.quantity,
+            qty_on_hand: newOnHand,
+            qty_reserved: currentReserved,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "warehouse_id,variant_id" }
@@ -209,13 +226,13 @@ export function useUpdateStock() {
 
       if (stockError) throw stockError;
 
-      // 2. Create stock movement record
+      // 3. Create stock movement record
       const { data: movementData, error: movementError } = await supabase
         .from("stock_movements")
         .insert({
           warehouse_id: input.warehouseId,
           variant_id: input.variantId,
-          quantity: input.quantity,
+          quantity: input.quantityDelta,
           movement_type: input.movementType as any,
           reason: input.reason ?? null,
           reference_id: input.referenceId ?? null,

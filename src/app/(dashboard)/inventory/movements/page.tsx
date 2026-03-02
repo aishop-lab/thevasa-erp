@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { MovementLog, MOVEMENT_TYPES } from '@/components/inventory/movement-log'
@@ -22,9 +22,12 @@ import {
 import { Calendar } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils/date'
+import { downloadCSV } from '@/lib/utils/export'
+import { toast } from 'sonner'
 import {
   ArrowLeftRight,
   CalendarIcon,
+  Download,
   Search,
 } from 'lucide-react'
 
@@ -52,6 +55,58 @@ export default function MovementsPage() {
   >('all')
   const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [productFilter, setProductFilter] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = useCallback(async () => {
+    setIsExporting(true)
+    try {
+      let query = supabase
+        .from('stock_movements')
+        .select('*, variant:product_variants(variant_sku, product:products(name), size:size_masters(name), color:color_masters(name)), warehouse:warehouses(name)')
+        .order('created_at', { ascending: false })
+
+      if (dateFrom) query = query.gte('created_at', dateFrom.toISOString())
+      if (dateTo) {
+        const endDate = new Date(dateTo)
+        endDate.setDate(endDate.getDate() + 1)
+        query = query.lt('created_at', endDate.toISOString())
+      }
+      if (movementTypeFilter !== 'all') query = query.eq('movement_type', movementTypeFilter)
+      if (warehouseFilter && warehouseFilter !== 'all') query = query.eq('warehouse_id', warehouseFilter)
+
+      const { data, error } = await query
+      if (error) throw error
+
+      let rows = (data ?? []) as any[]
+
+      // Client-side product filter for export
+      if (productFilter) {
+        const lower = productFilter.toLowerCase()
+        rows = rows.filter((r: any) =>
+          r.variant?.product?.name?.toLowerCase().includes(lower) ||
+          r.variant?.variant_sku?.toLowerCase().includes(lower)
+        )
+      }
+
+      downloadCSV(rows, [
+        { header: 'Date', accessor: (r: any) => r.created_at },
+        { header: 'Product', accessor: (r: any) => r.variant?.product?.name ?? '' },
+        { header: 'Variant SKU', accessor: (r: any) => r.variant?.variant_sku ?? '' },
+        { header: 'Size', accessor: (r: any) => r.variant?.size?.name ?? '' },
+        { header: 'Color', accessor: (r: any) => r.variant?.color?.name ?? '' },
+        { header: 'Warehouse', accessor: (r: any) => r.warehouse?.name ?? '' },
+        { header: 'Type', accessor: (r: any) => r.movement_type },
+        { header: 'Quantity', accessor: (r: any) => r.quantity },
+        { header: 'Notes', accessor: (r: any) => r.notes ?? '' },
+      ], `movements-export-${new Date().toISOString().slice(0, 10)}`)
+
+      toast.success(`Exported ${rows.length} movements`)
+    } catch {
+      toast.error('Failed to export movements')
+    } finally {
+      setIsExporting(false)
+    }
+  }, [supabase, dateFrom, dateTo, movementTypeFilter, warehouseFilter, productFilter])
 
   // Warehouses for the filter
   const { data: warehouses } = useQuery<{ id: string; name: string }[]>({
@@ -70,16 +125,22 @@ export default function MovementsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <ArrowLeftRight className="size-6 text-primary" />
-          <h1 className="text-2xl font-bold tracking-tight">
-            Stock Movements
-          </h1>
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <ArrowLeftRight className="size-6 text-primary" />
+            <h1 className="text-2xl font-bold tracking-tight">
+              Stock Movements
+            </h1>
+          </div>
+          <p className="text-muted-foreground">
+            Track stock movement history across warehouses
+          </p>
         </div>
-        <p className="text-muted-foreground">
-          Track stock movement history across warehouses
-        </p>
+        <Button variant="outline" onClick={handleExport} disabled={isExporting}>
+          <Download className="size-4" />
+          {isExporting ? 'Exporting...' : 'Export CSV'}
+        </Button>
       </div>
 
       {/* Filters */}

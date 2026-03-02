@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { syncFbaInventory, type InventorySyncSummary } from '@/lib/amazon/inventory';
 
+export const maxDuration = 300;
+
 // -----------------------------------------------------------------------------
 // GET /api/cron/sync-inventory
 // -----------------------------------------------------------------------------

@@ -74,22 +74,30 @@ export interface StockRow {
 interface StockTableProps {
   warehouseFilter: string
   onAdjust: (row: StockRow) => void
+  /** Hide the Adjust action column (e.g. for viewer role) */
+  hideActions?: boolean
 }
 
 // ---------------------------------------------------------------------------
 // Data fetching
 // ---------------------------------------------------------------------------
 
-function useStockData(warehouseFilter: string) {
+interface StockDataResult {
+  data: StockRow[]
+  totalCount: number
+}
+
+function useStockData(warehouseFilter: string, page: number, pageSize: number, search: string) {
   const supabase = createClient()
 
-  return useQuery<StockRow[]>({
-    queryKey: ['warehouse_stock', warehouseFilter],
+  return useQuery<StockDataResult>({
+    queryKey: ['warehouse_stock', warehouseFilter, page, pageSize, search],
     queryFn: async () => {
       let query = supabase
         .from('warehouse_stock')
         .select(
-          '*, product_variants(variant_sku, product:products(name, sku), size:size_masters(name), color:color_masters(name)), warehouse:warehouses(name)'
+          '*, product_variants(variant_sku, product:products(name, sku), size:size_masters(name), color:color_masters(name)), warehouse:warehouses(name)',
+          { count: 'exact' }
         )
         .order('updated_at', { ascending: false })
 
@@ -97,10 +105,18 @@ function useStockData(warehouseFilter: string) {
         query = query.eq('warehouse_id', warehouseFilter)
       }
 
-      const { data, error } = await query
+      // Server-side pagination
+      const from = page * pageSize
+      const to = from + pageSize - 1
+      query = query.range(from, to)
+
+      const { data, error, count } = await query
 
       if (error) throw error
-      return (data as unknown as StockRow[]) ?? []
+      return {
+        data: (data as unknown as StockRow[]) ?? [],
+        totalCount: count ?? 0,
+      }
     },
   })
 }
@@ -175,11 +191,17 @@ function StockTableSkeleton() {
 // Component
 // ---------------------------------------------------------------------------
 
-export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
-  const { data: stock, isLoading, error } = useStockData(warehouseFilter)
+export function StockTable({ warehouseFilter, onAdjust, hideActions }: StockTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = useState('')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
+
+  const { data: stockResult, isLoading, error } = useStockData(warehouseFilter, page, pageSize, globalFilter)
+  const stock = stockResult?.data
+  const totalCount = stockResult?.totalCount ?? 0
+  const totalPages = Math.ceil(totalCount / pageSize)
 
   const columns = useMemo<ColumnDef<StockRow>[]>(
     () => [
@@ -294,10 +316,10 @@ export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
           )
         },
       },
-      {
+      ...(!hideActions ? [{
         id: 'actions',
         header: 'Actions',
-        cell: ({ row }) => (
+        cell: ({ row }: { row: { original: StockRow } }) => (
           <Button
             variant="ghost"
             size="sm"
@@ -307,9 +329,9 @@ export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
             Adjust
           </Button>
         ),
-      },
+      }] : []),
     ],
-    [onAdjust]
+    [onAdjust, hideActions]
   )
 
   const table = useReactTable({
@@ -318,19 +340,13 @@ export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
     state: {
       sorting,
       columnFilters,
-      globalFilter,
     },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
-    onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    globalFilterFn: 'includesString',
-    initialState: {
-      pagination: { pageSize: 20 },
-    },
+    manualPagination: true,
+    pageCount: totalPages,
   })
 
   if (isLoading) return <StockTableSkeleton />
@@ -357,7 +373,7 @@ export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
           />
         </div>
         <p className="text-sm text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} items
+          {totalCount} items
         </p>
       </div>
 
@@ -411,13 +427,15 @@ export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Page {table.getState().pagination.pageIndex + 1} of{' '}
-          {table.getPageCount()}
+          Showing {totalCount > 0 ? page * pageSize + 1 : 0}-{Math.min((page + 1) * pageSize, totalCount)} of {totalCount} items
         </p>
         <div className="flex items-center gap-2">
           <Select
-            value={String(table.getState().pagination.pageSize)}
-            onValueChange={(val) => table.setPageSize(Number(val))}
+            value={String(pageSize)}
+            onValueChange={(val) => {
+              setPageSize(Number(val))
+              setPage(0)
+            }}
           >
             <SelectTrigger className="w-[110px]">
               <SelectValue />
@@ -433,17 +451,20 @@ export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page <= 0}
           >
             <ChevronLeft className="size-4" />
             Previous
           </Button>
+          <span className="text-sm">
+            Page {page + 1} of {totalPages}
+          </span>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page + 1 >= totalPages}
           >
             Next
             <ChevronRight className="size-4" />

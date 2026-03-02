@@ -372,13 +372,12 @@ async function processLocation(
           const oldQty = existingStock.qty_on_hand;
           const delta = onHandQty - oldQty;
 
-          // Update stock
+          // Update stock (qty_available is a GENERATED column, not set directly)
           const { error: updateError } = await supabase
             .from('warehouse_stock')
             .update({
               qty_on_hand: onHandQty,
               qty_reserved: committedQty,
-              qty_available: availableQty,
               last_synced_at: new Date().toISOString(),
             })
             .eq('id', existingStock.id);
@@ -407,7 +406,7 @@ async function processLocation(
 
           stats.updated++;
         } else {
-          // Create new stock record
+          // Create new stock record (qty_available is a GENERATED column, not set directly)
           const { error: insertError } = await supabase
             .from('warehouse_stock')
             .insert({
@@ -416,7 +415,6 @@ async function processLocation(
               variant_id: internalVariantId,
               qty_on_hand: onHandQty,
               qty_reserved: committedQty,
-              qty_available: availableQty,
               last_synced_at: new Date().toISOString(),
             });
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useEffect, useState, type KeyboardEvent } from "react";
-import { Send, Sparkles, Trash2 } from "lucide-react";
+import { useRef, useEffect, useState, useCallback, type KeyboardEvent } from "react";
+import { Send, Sparkles, Trash2, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useAiChat, type ChatMessage } from "@/hooks/use-ai-chat";
+import { useAiChat, getToolLabel, type ChatMessage } from "@/hooks/use-ai-chat";
 import { cn } from "@/lib/utils";
 
 interface AiChatPanelProps {
@@ -113,9 +113,14 @@ export function AiChatPanel({ open, onOpenChange }: AiChatPanelProps) {
             )}
             {isLoading &&
               messages[messages.length - 1]?.role === "assistant" &&
-              messages[messages.length - 1]?.content === "" && (
+              messages[messages.length - 1]?.content === "" &&
+              ((messages[messages.length - 1]?.activeTools?.length ?? 0) > 0 ? (
+                <ToolProgressIndicator
+                  tools={messages[messages.length - 1].activeTools!}
+                />
+              ) : (
                 <TypingIndicator />
-              )}
+              ))}
           </div>
         </ScrollArea>
 
@@ -181,16 +186,31 @@ function EmptyState({
   );
 }
 
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback: ignored
+    }
+  }, [message.content]);
 
   return (
     <div
-      className={cn("flex", isUser ? "justify-end" : "justify-start")}
+      className={cn("group flex flex-col gap-1", isUser ? "items-end" : "items-start")}
     >
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm",
+          "relative max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm",
           isUser
             ? "bg-gradient-to-br from-violet-500 to-purple-600 text-white"
             : "bg-muted text-foreground"
@@ -206,6 +226,24 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         )}
       </div>
+      <div className="flex items-center gap-1.5 px-1">
+        <span className="text-[10px] text-muted-foreground">
+          {formatTime(message.timestamp)}
+        </span>
+        {!isUser && message.content && (
+          <button
+            onClick={handleCopy}
+            className="text-muted-foreground hover:text-foreground opacity-0 transition-opacity group-hover:opacity-100"
+            title="Copy to clipboard"
+          >
+            {copied ? (
+              <Check className="h-3 w-3 text-emerald-500" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -217,6 +255,23 @@ function TypingIndicator() {
         <span className="bg-muted-foreground/50 h-1.5 w-1.5 animate-bounce rounded-full [animation-delay:0ms]" />
         <span className="bg-muted-foreground/50 h-1.5 w-1.5 animate-bounce rounded-full [animation-delay:150ms]" />
         <span className="bg-muted-foreground/50 h-1.5 w-1.5 animate-bounce rounded-full [animation-delay:300ms]" />
+      </div>
+    </div>
+  );
+}
+
+function ToolProgressIndicator({ tools }: { tools: string[] }) {
+  return (
+    <div className="flex justify-start">
+      <div className="bg-muted flex flex-col gap-1.5 rounded-2xl px-4 py-3">
+        {tools.map((tool) => (
+          <div key={tool} className="flex items-center gap-2 text-xs">
+            <span className="bg-violet-500 h-1.5 w-1.5 animate-pulse rounded-full" />
+            <span className="text-muted-foreground">
+              {getToolLabel(tool)}...
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

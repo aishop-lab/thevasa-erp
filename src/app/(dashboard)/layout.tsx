@@ -2,6 +2,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
 import { Providers } from '@/components/providers'
 import { AiChatButton } from '@/components/ai/ai-chat-button'
+import { CommandPalette } from '@/components/command-palette'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -15,6 +16,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </main>
         </div>
       </div>
+      <CommandPalette />
       <AiChatButton />
     </Providers>
   )

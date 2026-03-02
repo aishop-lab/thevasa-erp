@@ -5,6 +5,7 @@ import { RevenueChart } from '@/components/dashboard/revenue-chart'
 import { PlatformComparison } from '@/components/dashboard/platform-comparison'
 import { InventoryAlerts } from '@/components/dashboard/inventory-alerts'
 import { SyncStatusBanner } from '@/components/dashboard/sync-status'
+import { RecentOrders } from '@/components/dashboard/recent-orders'
 
 export default function DashboardPage() {
   return (
@@ -19,6 +20,7 @@ export default function DashboardPage() {
         <RevenueChart />
         <PlatformComparison />
       </div>
+      <RecentOrders />
       <InventoryAlerts />
     </div>
   )

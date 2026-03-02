@@ -8,6 +8,32 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
+  /** Tool names currently being executed (shown as progress indicators) */
+  activeTools?: string[];
+}
+
+/** Human-readable labels for AI tool names */
+const TOOL_LABELS: Record<string, string> = {
+  search_products: "Searching products",
+  get_product_details: "Loading product details",
+  get_stock_levels: "Checking stock levels",
+  get_inventory_discrepancies: "Analyzing discrepancies",
+  get_stock_movements: "Reviewing stock movements",
+  search_orders: "Searching orders",
+  get_order_details: "Loading order details",
+  get_revenue_overview: "Analyzing revenue",
+  get_expenses_summary: "Reviewing expenses",
+  get_pnl_report: "Generating P&L report",
+  get_top_products: "Finding top products",
+  get_platform_comparison: "Comparing platforms",
+  get_dashboard_stats: "Loading dashboard stats",
+  get_returns_analysis: "Analyzing returns",
+  add_expense: "Adding expense",
+  adjust_stock: "Adjusting stock",
+};
+
+export function getToolLabel(toolName: string): string {
+  return TOOL_LABELS[toolName] ?? toolName.replace(/_/g, " ");
 }
 
 export function useAiChat() {
@@ -31,6 +57,7 @@ export function useAiChat() {
         content: "",
         timestamp: new Date(),
         isStreaming: true,
+        activeTools: [],
       };
 
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
@@ -80,18 +107,52 @@ export function useAiChat() {
 
               try {
                 const parsed = JSON.parse(data);
+
                 if (parsed.content) {
+                  // Text content chunk
                   accumulated += parsed.content;
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantId
-                        ? { ...m, content: accumulated }
+                        ? { ...m, content: accumulated, activeTools: [] }
                         : m
                     )
                   );
+                } else if (parsed.type === "tool_start") {
+                  // Tool execution started
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? {
+                            ...m,
+                            activeTools: [
+                              ...(m.activeTools ?? []),
+                              parsed.name,
+                            ],
+                          }
+                        : m
+                    )
+                  );
+                } else if (parsed.type === "tool_end") {
+                  // Tool execution completed
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? {
+                            ...m,
+                            activeTools: (m.activeTools ?? []).filter(
+                              (t) => t !== parsed.name
+                            ),
+                          }
+                        : m
+                    )
+                  );
+                } else if (parsed.error) {
+                  throw new Error(parsed.error);
                 }
-              } catch {
-                // Skip malformed chunks
+              } catch (e) {
+                // Re-throw actual errors, skip parse failures
+                if (e instanceof Error && e.message !== data) throw e;
               }
             }
           }
@@ -100,7 +161,9 @@ export function useAiChat() {
         // Mark streaming as complete
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, isStreaming: false } : m
+            m.id === assistantId
+              ? { ...m, isStreaming: false, activeTools: [] }
+              : m
           )
         );
       } catch (error) {
@@ -118,6 +181,7 @@ export function useAiChat() {
                   ...m,
                   content: `Sorry, I encountered an error: ${errorMessage}`,
                   isStreaming: false,
+                  activeTools: [],
                 }
               : m
           )

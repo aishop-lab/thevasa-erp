@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { usePermissions, type NavSection, type SettingsChild } from '@/hooks/use-permissions'
 import {
   LayoutDashboard,
   Package,
@@ -28,21 +29,41 @@ import {
   BarChart3,
 } from 'lucide-react'
 
-const navigation = [
+interface NavChild {
+  label: string
+  href: string
+  icon: typeof LayoutDashboard
+  /** For settings children, used for role-based visibility */
+  settingsKey?: SettingsChild
+}
+
+interface NavItemDef {
+  label: string
+  href: string
+  icon: typeof LayoutDashboard
+  /** Maps to NavSection for role filtering */
+  navSection: NavSection
+  children?: NavChild[]
+}
+
+const navigation: NavItemDef[] = [
   {
     label: 'Dashboard',
     href: '/',
     icon: LayoutDashboard,
+    navSection: 'Dashboard',
   },
   {
     label: 'Products',
     href: '/products',
     icon: Package,
+    navSection: 'Products',
   },
   {
     label: 'Inventory',
     href: '/inventory',
     icon: Warehouse,
+    navSection: 'Inventory',
     children: [
       { label: 'Stock Overview', href: '/inventory', icon: BoxesIcon },
       { label: 'Discrepancies', href: '/inventory/discrepancies', icon: AlertTriangle },
@@ -53,11 +74,13 @@ const navigation = [
     label: 'Orders',
     href: '/orders',
     icon: ShoppingCart,
+    navSection: 'Orders',
   },
   {
     label: 'Finance',
     href: '/finance',
     icon: IndianRupee,
+    navSection: 'Finance',
     children: [
       { label: 'Overview', href: '/finance', icon: BarChart3 },
       { label: 'Revenue', href: '/finance/revenue', icon: TrendingUp },
@@ -71,11 +94,12 @@ const navigation = [
     label: 'Settings',
     href: '/settings',
     icon: Settings,
+    navSection: 'Settings',
     children: [
-      { label: 'General', href: '/settings', icon: Settings },
-      { label: 'Platforms', href: '/settings/platforms', icon: Plug },
-      { label: 'Team', href: '/settings/team', icon: Users },
-      { label: 'Warehouses', href: '/settings/warehouses', icon: Building2 },
+      { label: 'General', href: '/settings', icon: Settings, settingsKey: 'General' as SettingsChild },
+      { label: 'Platforms', href: '/settings/platforms', icon: Plug, settingsKey: 'Platforms' as SettingsChild },
+      { label: 'Team', href: '/settings/team', icon: Users, settingsKey: 'Team' as SettingsChild },
+      { label: 'Warehouses', href: '/settings/warehouses', icon: Building2, settingsKey: 'Warehouses' as SettingsChild },
     ],
   },
 ]
@@ -83,15 +107,18 @@ const navigation = [
 function NavItem({
   item,
   collapsed,
+  visibleChildren,
 }: {
-  item: (typeof navigation)[0]
+  item: NavItemDef
   collapsed: boolean
+  visibleChildren?: NavChild[]
 }) {
   const pathname = usePathname()
-  const isActive = pathname === item.href || (item.children && item.children.some((c) => pathname === c.href))
+  const children = visibleChildren ?? item.children
+  const isActive = pathname === item.href || (children && children.some((c) => pathname === c.href))
   const [expanded, setExpanded] = useState(isActive)
 
-  if (item.children && !collapsed) {
+  if (children && children.length > 0 && !collapsed) {
     return (
       <div>
         <button
@@ -111,7 +138,7 @@ function NavItem({
         </button>
         {expanded && (
           <div className="ml-4 mt-1 space-y-1 border-l pl-3">
-            {item.children.map((child) => (
+            {children.map((child) => (
               <Link
                 key={child.href}
                 href={child.href}
@@ -151,6 +178,22 @@ function NavItem({
 }
 
 function SidebarContent({ collapsed }: { collapsed: boolean }) {
+  const permissions = usePermissions()
+
+  // Filter navigation items and their children based on role
+  const filteredNav = navigation
+    .filter((item) => permissions.canViewNav(item.navSection))
+    .map((item) => {
+      // For Settings, filter children by settingsKey
+      if (item.navSection === 'Settings' && item.children) {
+        const visibleChildren = item.children.filter(
+          (child) => !child.settingsKey || permissions.canViewSettingsChild(child.settingsKey)
+        )
+        return { ...item, filteredChildren: visibleChildren }
+      }
+      return { ...item, filteredChildren: item.children }
+    })
+
   return (
     <div className="flex h-full flex-col">
       <div className={cn('flex h-14 items-center border-b px-4', collapsed && 'justify-center px-2')}>
@@ -167,8 +210,13 @@ function SidebarContent({ collapsed }: { collapsed: boolean }) {
       </div>
       <ScrollArea className="flex-1 px-3 py-4">
         <nav className="space-y-1">
-          {navigation.map((item) => (
-            <NavItem key={item.href} item={item} collapsed={collapsed} />
+          {filteredNav.map((item) => (
+            <NavItem
+              key={item.href}
+              item={item}
+              collapsed={collapsed}
+              visibleChildren={item.filteredChildren}
+            />
           ))}
         </nav>
       </ScrollArea>

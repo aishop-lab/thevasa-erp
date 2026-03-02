@@ -153,35 +153,30 @@ export function useCurrentUser() {
 /**
  * Mutation to invite a new member to the team.
  *
- * Creates a team invitation record that the invited user can accept.
+ * Calls the server-side invite API which uses the Supabase admin client
+ * to send an invitation email and create the team_member record.
  */
 export function useInviteMember() {
-  const supabase = createClient();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (input: InviteMemberInput) => {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) throw authError;
-      if (!user) throw new Error("Not authenticated");
-
-      // Insert directly into team_members (invitation flow is simplified for v1)
-      const { data, error } = await supabase
-        .from("team_members" as any)
-        .insert({
-          team_id: input.teamId,
-          user_id: user.id, // Placeholder - in production, look up user by email
+      const response = await fetch("/api/team/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: input.email,
           role: input.role,
-        } as any)
-        .select()
-        .single();
+          teamId: input.teamId,
+        }),
+      });
 
-      if (error) throw error;
-      return data;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to send invitation");
+      }
+
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: teamKeys.members() });

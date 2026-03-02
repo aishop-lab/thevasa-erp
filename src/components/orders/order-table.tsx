@@ -67,6 +67,16 @@ interface OrderTableProps {
   globalFilter?: string
   platformFilter?: string
   statusFilter?: string
+  /** Server-side pagination: total count of matching rows */
+  totalCount?: number
+  /** Server-side pagination: current page (0-indexed) */
+  page?: number
+  /** Server-side pagination: page size */
+  pageSize?: number
+  /** Server-side pagination: callback when page changes */
+  onPageChange?: (page: number) => void
+  /** Server-side pagination: callback when page size changes */
+  onPageSizeChange?: (size: number) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -297,14 +307,23 @@ export function OrderTable({
   globalFilter = '',
   platformFilter = 'all',
   statusFilter = 'all',
+  totalCount,
+  page: serverPage,
+  pageSize: serverPageSize,
+  onPageChange,
+  onPageSizeChange,
 }: OrderTableProps) {
+  const isServerPaginated = totalCount !== undefined && onPageChange !== undefined
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'ordered_at', desc: true },
   ])
-  const [pageSize, setPageSize] = useState(20)
+  const [clientPageSize, setClientPageSize] = useState(20)
+  const activePageSize = isServerPaginated ? (serverPageSize ?? 20) : clientPageSize
 
-  // Apply external filters to the data
+  // Apply client-side filters only when NOT server-paginated
   const filteredData = useMemo(() => {
+    if (isServerPaginated) return orders
+
     let data = orders
 
     if (platformFilter && platformFilter !== 'all') {
@@ -330,7 +349,7 @@ export function OrderTable({
     }
 
     return data
-  }, [orders, platformFilter, statusFilter, globalFilter])
+  }, [orders, platformFilter, statusFilter, globalFilter, isServerPaginated])
 
   const table = useReactTable({
     data: filteredData,
@@ -338,14 +357,16 @@ export function OrderTable({
     state: {
       sorting,
       pagination: {
-        pageIndex: 0,
-        pageSize,
+        pageIndex: isServerPaginated ? 0 : 0,
+        pageSize: activePageSize,
       },
     },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    ...(isServerPaginated ? {} : { getPaginationRowModel: getPaginationRowModel() }),
+    manualPagination: isServerPaginated,
+    pageCount: isServerPaginated ? Math.ceil((totalCount ?? 0) / activePageSize) : undefined,
   })
 
   if (isLoading) {
@@ -402,64 +423,86 @@ export function OrderTable({
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <p className="text-muted-foreground text-sm">
-            Showing{' '}
-            {filteredData.length > 0
-              ? table.getState().pagination.pageIndex * pageSize + 1
-              : 0}
-            -
-            {Math.min(
-              (table.getState().pagination.pageIndex + 1) * pageSize,
-              filteredData.length
-            )}{' '}
-            of {filteredData.length} orders
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Rows:</span>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(value) => setPageSize(Number(value))}
-            >
-              <SelectTrigger className="h-8 w-[70px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[10, 20, 50, 100].map((size) => (
-                  <SelectItem key={size} value={String(size)}>
-                    {size}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      {(() => {
+        const currentPage = isServerPaginated ? (serverPage ?? 0) : table.getState().pagination.pageIndex
+        const total = isServerPaginated ? (totalCount ?? 0) : filteredData.length
+        const totalPages = isServerPaginated
+          ? Math.ceil(total / activePageSize)
+          : table.getPageCount()
+        const from = total > 0 ? currentPage * activePageSize + 1 : 0
+        const to = Math.min((currentPage + 1) * activePageSize, total)
+
+        return (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <p className="text-muted-foreground text-sm">
+                Showing {from}-{to} of {total} orders
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Rows:</span>
+                <Select
+                  value={String(activePageSize)}
+                  onValueChange={(value) => {
+                    const newSize = Number(value)
+                    if (isServerPaginated) {
+                      onPageSizeChange?.(newSize)
+                      onPageChange?.(0)
+                    } else {
+                      setClientPageSize(newSize)
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[70px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 20, 50, 100].map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (isServerPaginated) {
+                    onPageChange?.(currentPage - 1)
+                  } else {
+                    table.previousPage()
+                  }
+                }}
+                disabled={currentPage <= 0}
+              >
+                <ChevronLeft className="mr-1 size-4" />
+                Previous
+              </Button>
+              <span className="text-sm">
+                Page {currentPage + 1} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (isServerPaginated) {
+                    onPageChange?.(currentPage + 1)
+                  } else {
+                    table.nextPage()
+                  }
+                }}
+                disabled={currentPage + 1 >= totalPages}
+              >
+                Next
+                <ChevronRight className="ml-1 size-4" />
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            <ChevronLeft className="mr-1 size-4" />
-            Previous
-          </Button>
-          <span className="text-sm">
-            Page {table.getState().pagination.pageIndex + 1} of{' '}
-            {table.getPageCount()}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-            <ChevronRight className="ml-1 size-4" />
-          </Button>
-        </div>
-      </div>
+        )
+      })()}
     </div>
   )
 }

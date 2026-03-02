@@ -4,9 +4,7 @@ import { useMemo, useState, Fragment } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
-  getFilteredRowModel,
   getSortedRowModel,
-  getPaginationRowModel,
   getExpandedRowModel,
   flexRender,
   type ColumnDef,
@@ -116,19 +114,27 @@ const RESOLUTION_REASONS: { value: ResolutionReason; label: string }[] = [
 // Data hooks
 // ---------------------------------------------------------------------------
 
-function useDiscrepancies(
+interface DiscrepancyDataResult {
+  data: DiscrepancyRow[]
+  totalCount: number
+}
+
+function useDiscrepancyData(
   severityFilter: Severity | 'all',
-  statusFilter: DiscrepancyStatus | 'all'
+  statusFilter: DiscrepancyStatus | 'all',
+  page: number,
+  pageSize: number
 ) {
   const supabase = createClient()
 
-  return useQuery<DiscrepancyRow[]>({
-    queryKey: ['inventory_discrepancies', severityFilter, statusFilter],
+  return useQuery<DiscrepancyDataResult>({
+    queryKey: ['inventory_discrepancies', severityFilter, statusFilter, page, pageSize],
     queryFn: async () => {
       let query = supabase
         .from('inventory_discrepancies')
         .select(
-          '*, variant:product_variants(variant_sku, product:products(name)), warehouse:warehouses(name)'
+          '*, variant:product_variants(variant_sku, product:products(name)), warehouse:warehouses(name)',
+          { count: 'exact' }
         )
         .order('detected_at', { ascending: false })
 
@@ -140,9 +146,17 @@ function useDiscrepancies(
         query = query.eq('status', statusFilter)
       }
 
-      const { data, error } = await query
+      // Server-side pagination
+      const from = page * pageSize
+      const to = from + pageSize - 1
+      query = query.range(from, to)
+
+      const { data, error, count } = await query
       if (error) throw error
-      return (data as unknown as DiscrepancyRow[]) ?? []
+      return {
+        data: (data as unknown as DiscrepancyRow[]) ?? [],
+        totalCount: count ?? 0,
+      }
     },
   })
 }
@@ -337,16 +351,33 @@ export function DiscrepancyTable({
 }: DiscrepancyTableProps) {
   const supabase = createClient()
   const queryClient = useQueryClient()
-  const { data: discrepancies, isLoading, error } = useDiscrepancies(
-    severityFilter,
-    statusFilter
-  )
 
   const [sorting, setSorting] = useState<SortingState>([])
   const [expanded, setExpanded] = useState<ExpandedState>({})
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false)
   const [resolveId, setResolveId] = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
+
+  // Reset page when filters change
+  const filterKey = `${severityFilter}-${statusFilter}`
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey)
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
+    setPage(0)
+  }
+
+  const { data: discrepancyResult, isLoading, error } = useDiscrepancyData(
+    severityFilter,
+    statusFilter,
+    page,
+    pageSize
+  )
+
+  const discrepancies = discrepancyResult?.data
+  const totalCount = discrepancyResult?.totalCount ?? 0
+  const totalPages = Math.ceil(totalCount / pageSize)
 
   // Investigate mutation
   const investigateMutation = useMutation({
@@ -562,13 +593,10 @@ export function DiscrepancyTable({
     onExpandedChange: setExpanded,
     getRowCanExpand: () => true,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
-    initialState: {
-      pagination: { pageSize: 20 },
-    },
+    manualPagination: true,
+    pageCount: totalPages,
   })
 
   if (isLoading) return <DiscrepancyTableSkeleton />
@@ -585,8 +613,8 @@ export function DiscrepancyTable({
     <>
       {/* Summary */}
       <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-        <span>{table.getFilteredRowModel().rows.length} discrepancies</span>
-        {discrepancies && (
+        <span>{totalCount} discrepancies</span>
+        {discrepancies && discrepancies.length > 0 && (
           <>
             <span className="text-red-600 font-medium">
               {discrepancies.filter((d) => d.severity === 'major').length} major
@@ -726,24 +754,44 @@ export function DiscrepancyTable({
       {/* Pagination */}
       <div className="flex items-center justify-between mt-4">
         <p className="text-sm text-muted-foreground">
-          Page {table.getState().pagination.pageIndex + 1} of{' '}
-          {table.getPageCount()}
+          Showing {totalCount > 0 ? page * pageSize + 1 : 0}-{Math.min((page + 1) * pageSize, totalCount)} of {totalCount} discrepancies
         </p>
         <div className="flex items-center gap-2">
+          <Select
+            value={String(pageSize)}
+            onValueChange={(val) => {
+              setPageSize(Number(val))
+              setPage(0)
+            }}
+          >
+            <SelectTrigger className="w-[110px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[10, 20, 50, 100].map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size} per page
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page <= 0}
           >
             <ChevronLeft className="size-4" />
             Previous
           </Button>
+          <span className="text-sm">
+            Page {page + 1} of {totalPages}
+          </span>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page + 1 >= totalPages}
           >
             Next
             <ChevronRight className="size-4" />

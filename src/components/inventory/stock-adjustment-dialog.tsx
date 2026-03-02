@@ -177,11 +177,11 @@ export function StockAdjustmentDialog({
       const newOnHand = currentStock.qty_on_hand + signedQty
       if (newOnHand < 0) throw new Error('Stock cannot go below zero')
 
+      // Note: qty_available is a GENERATED column (qty_on_hand - qty_reserved), not set directly
       const { error: updateErr } = await supabase
         .from('warehouse_stock')
         .update({
           qty_on_hand: newOnHand,
-          qty_available: newOnHand - currentStock.qty_reserved,
           updated_at: new Date().toISOString(),
         })
         .eq('id', currentStock.id)

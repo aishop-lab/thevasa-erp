@@ -410,21 +410,24 @@ export async function processInventoryUpdate(
   // Update warehouse stock
   const { data: existingStock } = await supabase
     .from('warehouse_stock')
-    .select('id, qty_on_hand, qty_available')
+    .select('id, qty_on_hand, qty_reserved')
     .eq('team_id', teamId)
     .eq('warehouse_id', warehouse.id)
     .eq('variant_id', mapping.variant_id)
     .single();
 
   if (existingStock) {
-    const oldAvailable = existingStock.qty_available;
-    const delta = available - oldAvailable;
+    const oldOnHand = existingStock.qty_on_hand;
+    // Shopify webhook gives us the new available qty; update on_hand accordingly
+    // Since qty_available = qty_on_hand - qty_reserved (generated), we compute new on_hand
+    const delta = available - (oldOnHand - (existingStock.qty_reserved ?? 0));
+    const newOnHand = oldOnHand + delta;
 
+    // qty_available is a GENERATED column, not set directly
     await supabase
       .from('warehouse_stock')
       .update({
-        qty_available: available,
-        qty_on_hand: existingStock.qty_on_hand + delta,
+        qty_on_hand: newOnHand,
         last_synced_at: new Date().toISOString(),
       })
       .eq('id', existingStock.id);
@@ -438,18 +441,17 @@ export async function processInventoryUpdate(
         quantity: delta,
         reference_type: 'shopify_webhook',
         reference_id: `inv-item-${inventoryItemId}-loc-${locationId}`,
-        notes: `Shopify inventory webhook: available ${oldAvailable} -> ${available}`,
+        notes: `Shopify inventory webhook: on_hand ${oldOnHand} -> ${newOnHand}`,
       });
     }
   } else {
-    // Create new stock record
+    // Create new stock record (qty_available is GENERATED, not set directly)
     await supabase.from('warehouse_stock').insert({
       team_id: teamId,
       warehouse_id: warehouse.id,
       variant_id: mapping.variant_id,
       qty_on_hand: available,
       qty_reserved: 0,
-      qty_available: available,
       last_synced_at: new Date().toISOString(),
     });
 

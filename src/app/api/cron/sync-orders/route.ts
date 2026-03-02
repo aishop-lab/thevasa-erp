@@ -12,6 +12,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { syncAmazonOrders, type OrderSyncSummary } from '@/lib/amazon/orders';
+import { syncShopifyOrders } from '@/lib/shopify/orders';
+
+export const maxDuration = 300;
 
 // -----------------------------------------------------------------------------
 // Types
@@ -102,31 +105,41 @@ export async function GET(request: NextRequest) {
               `${summary.records_updated} updated`
           );
         } else if (platform.name === 'shopify') {
-          // Shopify order sync will be handled by the Shopify integration module.
-          // This is a placeholder that logs a sync_log entry to track the attempt.
           console.log(
-            `[Cron Orders] Shopify order sync for team ${platform.team_id} - ` +
-              'delegating to Shopify sync module.'
+            `[Cron Orders] Starting Shopify order sync for team ${platform.team_id}`
           );
 
-          // TODO: Import and call syncShopifyOrders when Shopify integration is ready.
-          // For now, create a placeholder result.
+          const shopifyResult = await syncShopifyOrders(platform.team_id, 7);
+
           results.push({
             team_id: platform.team_id,
             platform_type: 'shopify',
             platform_id: platform.id,
             summary: {
               sync_log_id: '',
-              status: 'completed',
-              records_processed: 0,
-              records_created: 0,
-              records_updated: 0,
-              records_failed: 0,
-              error_message: 'Shopify sync not yet implemented',
+              status: shopifyResult.failed > 0 && shopifyResult.processed > shopifyResult.failed
+                ? 'partial'
+                : shopifyResult.failed === shopifyResult.processed && shopifyResult.processed > 0
+                  ? 'failed'
+                  : 'completed',
+              records_processed: shopifyResult.processed,
+              records_created: shopifyResult.created,
+              records_updated: shopifyResult.updated,
+              records_failed: shopifyResult.failed,
+              error_message: shopifyResult.errors.length > 0
+                ? shopifyResult.errors.join('; ')
+                : null,
               started_at: new Date().toISOString(),
               completed_at: new Date().toISOString(),
             },
           });
+
+          console.log(
+            `[Cron Orders] Shopify sync completed for team ${platform.team_id}: ` +
+              `${shopifyResult.processed} processed, ` +
+              `${shopifyResult.created} created, ` +
+              `${shopifyResult.updated} updated`
+          );
         }
       } catch (platformError) {
         const errorMessage =

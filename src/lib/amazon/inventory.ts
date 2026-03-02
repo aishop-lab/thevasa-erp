@@ -200,12 +200,12 @@ export async function syncFbaInventory(
           .single();
 
         if (existingStock) {
+          // Note: qty_available is a GENERATED column (qty_on_hand - qty_reserved), not set directly
           await supabase
             .from('warehouse_stock')
             .update({
               qty_on_hand: totalQty,
               qty_reserved: reservedQty,
-              qty_available: fulfillableQty,
               last_synced_at: new Date().toISOString(),
             })
             .eq('id', existingStock.id);
@@ -218,7 +218,6 @@ export async function syncFbaInventory(
             variant_id: variantId,
             qty_on_hand: totalQty,
             qty_reserved: reservedQty,
-            qty_available: fulfillableQty,
             last_synced_at: new Date().toISOString(),
           });
 
@@ -252,26 +251,61 @@ export async function syncFbaInventory(
           if (mainStock) {
             const discrepancy = totalQty - mainStock.qty_on_hand;
 
+            // Check for existing open/investigating discrepancy for this variant+warehouse
+            const { data: existingDisc } = await supabase
+              .from('inventory_discrepancies')
+              .select('id')
+              .eq('team_id', teamId)
+              .eq('variant_id', variantId)
+              .eq('warehouse_id', mainWarehouse.id)
+              .in('status', ['open', 'investigating'])
+              .limit(1)
+              .single();
+
             if (discrepancy !== 0) {
               const severity = calculateDiscrepancySeverity(
                 discrepancy,
                 mainStock.qty_on_hand
               );
 
-              await supabase.from('inventory_discrepancies').insert({
-                team_id: teamId,
-                variant_id: variantId,
-                warehouse_id: mainWarehouse.id,
-                fba_warehouse_id: fbaWarehouse.id,
-                system_qty: mainStock.qty_on_hand,
-                physical_qty: totalQty,
-                discrepancy,
-                severity,
-                status: 'open',
-                detected_at: new Date().toISOString(),
-              });
+              if (existingDisc) {
+                // Update existing discrepancy instead of creating duplicate
+                await supabase
+                  .from('inventory_discrepancies')
+                  .update({
+                    system_qty: mainStock.qty_on_hand,
+                    physical_qty: totalQty,
+                    discrepancy,
+                    severity,
+                    detected_at: new Date().toISOString(),
+                  })
+                  .eq('id', existingDisc.id);
+              } else {
+                await supabase.from('inventory_discrepancies').insert({
+                  team_id: teamId,
+                  variant_id: variantId,
+                  warehouse_id: mainWarehouse.id,
+                  fba_warehouse_id: fbaWarehouse.id,
+                  system_qty: mainStock.qty_on_hand,
+                  physical_qty: totalQty,
+                  discrepancy,
+                  severity,
+                  status: 'open',
+                  detected_at: new Date().toISOString(),
+                });
+              }
 
               discrepanciesFound++;
+            } else if (existingDisc) {
+              // Discrepancy resolved — auto-close existing open record
+              await supabase
+                .from('inventory_discrepancies')
+                .update({
+                  status: 'resolved',
+                  notes: 'Auto-resolved: quantities now match after FBA sync.',
+                  resolved_at: new Date().toISOString(),
+                })
+                .eq('id', existingDisc.id);
             }
           }
         }

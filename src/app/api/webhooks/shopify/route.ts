@@ -117,13 +117,13 @@ export async function POST(request: NextRequest) {
     .select('id')
     .single();
 
-  // Process the webhook asynchronously
-  // We respond with 200 immediately and process in the background
+  // Process the webhook synchronously before returning.
+  // Vercel serverless functions kill the process after the response is sent,
+  // so fire-and-forget doesn't work. Shopify allows 5s for webhook responses.
   const handler = TOPIC_HANDLERS[topic];
 
   if (handler) {
-    // Process in the background to respond quickly
-    processWebhookAsync(
+    await processWebhookAsync(
       supabase,
       webhookEvent?.id ?? null,
       teamId,
@@ -145,7 +145,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Always return 200 quickly to acknowledge receipt
   return NextResponse.json({ status: 'received', webhook_id: webhookId });
 }
 

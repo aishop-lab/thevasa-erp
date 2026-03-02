@@ -1034,15 +1034,28 @@ async function adjustStock(supabase: SupabaseClient, args: Args) {
 
   if (!warehouse) return { error: "No warehouse found" };
 
-  // Upsert stock
+  // Fetch current stock to preserve reserved quantity
+  const { data: currentStock } = await supabase
+    .from("warehouse_stock")
+    .select("qty_reserved")
+    .eq("warehouse_id", warehouse.id)
+    .eq("variant_id", variant.id)
+    .single();
+
+  const currentReserved = currentStock?.qty_reserved ?? 0;
+  const newOnHand = args.quantity;
+  const newAvailable = newOnHand - currentReserved;
+
+  // Upsert stock preserving reserved quantity
+  // Note: qty_available is a GENERATED column (qty_on_hand - qty_reserved), not set directly
   const { error: stockErr } = await supabase
     .from("warehouse_stock")
     .upsert(
       {
         warehouse_id: warehouse.id,
         variant_id: variant.id,
-        qty_on_hand: args.quantity,
-        qty_available: args.quantity,
+        qty_on_hand: newOnHand,
+        qty_reserved: currentReserved,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "warehouse_id,variant_id" }
@@ -1069,7 +1082,9 @@ async function adjustStock(supabase: SupabaseClient, args: Args) {
       variant_sku: args.variant_sku,
       product_name: (variant.product as any)?.name,
       warehouse: warehouse.name,
-      new_quantity: args.quantity,
+      new_quantity: newOnHand,
+      available: newAvailable,
+      reserved: currentReserved,
       reason: args.reason,
     },
   };
