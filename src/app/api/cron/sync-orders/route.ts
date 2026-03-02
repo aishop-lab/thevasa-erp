@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
             `[Cron Orders] Starting Amazon order sync for team ${platform.team_id}`
           );
 
-          const summary = await syncAmazonOrders(platform.team_id, 7);
+          const summary = await syncAmazonOrders(platform.team_id, 30);
 
           results.push({
             team_id: platform.team_id,
