@@ -74,8 +74,6 @@ export interface StockRow {
 interface StockTableProps {
   warehouseFilter: string
   onAdjust: (row: StockRow) => void
-  /** Hide the Adjust action column (e.g. for viewer role) */
-  hideActions?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +189,7 @@ function StockTableSkeleton() {
 // Component
 // ---------------------------------------------------------------------------
 
-export function StockTable({ warehouseFilter, onAdjust, hideActions }: StockTableProps) {
+export function StockTable({ warehouseFilter, onAdjust }: StockTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = useState('')
@@ -316,7 +314,7 @@ export function StockTable({ warehouseFilter, onAdjust, hideActions }: StockTabl
           )
         },
       },
-      ...(!hideActions ? [{
+      {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }: { row: { original: StockRow } }) => (
@@ -329,9 +327,9 @@ export function StockTable({ warehouseFilter, onAdjust, hideActions }: StockTabl
             Adjust
           </Button>
         ),
-      }] : []),
+      },
     ],
-    [onAdjust, hideActions]
+    [onAdjust]
   )
 
   const table = useReactTable({

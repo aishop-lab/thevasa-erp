@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { usePermissions } from '@/hooks/use-permissions'
 import { downloadCSV } from '@/lib/utils/export'
 import { toast } from 'sonner'
 import { Package, SlidersHorizontal, Download } from 'lucide-react'
@@ -26,9 +25,6 @@ export default function InventoryPage() {
   const [isExporting, setIsExporting] = useState(false)
 
   const { data: warehouses } = useWarehouses()
-  const { can } = usePermissions()
-  const canAdjust = can('adjust_stock')
-
   const handleExport = useCallback(async () => {
     setIsExporting(true)
     try {
@@ -94,12 +90,10 @@ export default function InventoryPage() {
             <Download className="size-4" />
             {isExporting ? 'Exporting...' : 'Export CSV'}
           </Button>
-          {canAdjust && (
-            <Button onClick={handleOpenAdjust}>
-              <SlidersHorizontal className="size-4" />
-              Adjust Stock
-            </Button>
-          )}
+          <Button onClick={handleOpenAdjust}>
+            <SlidersHorizontal className="size-4" />
+            Adjust Stock
+          </Button>
         </div>
       </div>
 
@@ -126,7 +120,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Stock Table */}
-      <StockTable warehouseFilter={warehouseFilter} onAdjust={handleAdjust} hideActions={!canAdjust} />
+      <StockTable warehouseFilter={warehouseFilter} onAdjust={handleAdjust} />
 
       {/* Adjustment Dialog */}
       <StockAdjustmentDialog

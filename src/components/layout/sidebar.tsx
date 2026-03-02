@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
-import { usePermissions, type NavSection, type SettingsChild } from '@/hooks/use-permissions'
 import {
   LayoutDashboard,
   Package,
@@ -33,16 +32,12 @@ interface NavChild {
   label: string
   href: string
   icon: typeof LayoutDashboard
-  /** For settings children, used for role-based visibility */
-  settingsKey?: SettingsChild
 }
 
 interface NavItemDef {
   label: string
   href: string
   icon: typeof LayoutDashboard
-  /** Maps to NavSection for role filtering */
-  navSection: NavSection
   children?: NavChild[]
 }
 
@@ -51,19 +46,16 @@ const navigation: NavItemDef[] = [
     label: 'Dashboard',
     href: '/',
     icon: LayoutDashboard,
-    navSection: 'Dashboard',
   },
   {
     label: 'Products',
     href: '/products',
     icon: Package,
-    navSection: 'Products',
   },
   {
     label: 'Inventory',
     href: '/inventory',
     icon: Warehouse,
-    navSection: 'Inventory',
     children: [
       { label: 'Stock Overview', href: '/inventory', icon: BoxesIcon },
       { label: 'Discrepancies', href: '/inventory/discrepancies', icon: AlertTriangle },
@@ -74,13 +66,11 @@ const navigation: NavItemDef[] = [
     label: 'Orders',
     href: '/orders',
     icon: ShoppingCart,
-    navSection: 'Orders',
   },
   {
     label: 'Finance',
     href: '/finance',
     icon: IndianRupee,
-    navSection: 'Finance',
     children: [
       { label: 'Overview', href: '/finance', icon: BarChart3 },
       { label: 'Revenue', href: '/finance/revenue', icon: TrendingUp },
@@ -94,12 +84,11 @@ const navigation: NavItemDef[] = [
     label: 'Settings',
     href: '/settings',
     icon: Settings,
-    navSection: 'Settings',
     children: [
-      { label: 'General', href: '/settings', icon: Settings, settingsKey: 'General' as SettingsChild },
-      { label: 'Platforms', href: '/settings/platforms', icon: Plug, settingsKey: 'Platforms' as SettingsChild },
-      { label: 'Team', href: '/settings/team', icon: Users, settingsKey: 'Team' as SettingsChild },
-      { label: 'Warehouses', href: '/settings/warehouses', icon: Building2, settingsKey: 'Warehouses' as SettingsChild },
+      { label: 'General', href: '/settings', icon: Settings },
+      { label: 'Platforms', href: '/settings/platforms', icon: Plug },
+      { label: 'Team', href: '/settings/team', icon: Users },
+      { label: 'Warehouses', href: '/settings/warehouses', icon: Building2 },
     ],
   },
 ]
@@ -107,14 +96,12 @@ const navigation: NavItemDef[] = [
 function NavItem({
   item,
   collapsed,
-  visibleChildren,
 }: {
   item: NavItemDef
   collapsed: boolean
-  visibleChildren?: NavChild[]
 }) {
   const pathname = usePathname()
-  const children = visibleChildren ?? item.children
+  const children = item.children
   const isActive = pathname === item.href || (children && children.some((c) => pathname === c.href))
   const [expanded, setExpanded] = useState(isActive)
 
@@ -178,25 +165,6 @@ function NavItem({
 }
 
 function SidebarContent({ collapsed }: { collapsed: boolean }) {
-  const permissions = usePermissions()
-
-  // While loading or if role is unknown, show all navigation items
-  const shouldFilter = !permissions.isLoading && permissions.role !== null
-
-  // Filter navigation items and their children based on role
-  const filteredNav = navigation
-    .filter((item) => !shouldFilter || permissions.canViewNav(item.navSection))
-    .map((item) => {
-      // For Settings, filter children by settingsKey
-      if (shouldFilter && item.navSection === 'Settings' && item.children) {
-        const visibleChildren = item.children.filter(
-          (child) => !child.settingsKey || permissions.canViewSettingsChild(child.settingsKey)
-        )
-        return { ...item, filteredChildren: visibleChildren }
-      }
-      return { ...item, filteredChildren: item.children }
-    })
-
   return (
     <div className="flex h-full flex-col">
       <div className={cn('flex h-14 items-center border-b px-4', collapsed && 'justify-center px-2')}>
@@ -213,12 +181,11 @@ function SidebarContent({ collapsed }: { collapsed: boolean }) {
       </div>
       <ScrollArea className="flex-1 px-3 py-4">
         <nav className="space-y-1">
-          {filteredNav.map((item) => (
+          {navigation.map((item) => (
             <NavItem
               key={item.href}
               item={item}
               collapsed={collapsed}
-              visibleChildren={item.filteredChildren}
             />
           ))}
         </nav>

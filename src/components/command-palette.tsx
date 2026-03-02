@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { usePermissions } from '@/hooks/use-permissions'
 import {
   CommandDialog,
   CommandEmpty,
@@ -13,20 +12,14 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-  CommandShortcut,
 } from '@/components/ui/command'
 import {
   LayoutDashboard,
   Package,
-  Warehouse,
   ShoppingCart,
-  IndianRupee,
   Settings,
   AlertTriangle,
   ArrowLeftRight,
-  SlidersHorizontal,
-  Download,
-  Search,
   FileText,
   Users,
   Plug,
@@ -91,8 +84,6 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const router = useRouter()
-  const { canViewNav } = usePermissions()
-
   const { data: orders } = useRecentOrders(search)
   const { data: products } = useProductSearch(search)
 
@@ -180,74 +171,58 @@ export function CommandPalette() {
             <LayoutDashboard className="size-4 text-muted-foreground" />
             Dashboard
           </CommandItem>
-          {canViewNav('Products') && (
-            <CommandItem onSelect={() => navigate('/products')}>
-              <Package className="size-4 text-muted-foreground" />
-              Products
-            </CommandItem>
-          )}
-          {canViewNav('Inventory') && (
-            <>
-              <CommandItem onSelect={() => navigate('/inventory')}>
-                <BoxesIcon className="size-4 text-muted-foreground" />
-                Stock Overview
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/inventory/discrepancies')}>
-                <AlertTriangle className="size-4 text-muted-foreground" />
-                Discrepancies
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/inventory/movements')}>
-                <ArrowLeftRight className="size-4 text-muted-foreground" />
-                Stock Movements
-              </CommandItem>
-            </>
-          )}
-          {canViewNav('Orders') && (
-            <CommandItem onSelect={() => navigate('/orders')}>
-              <ShoppingCart className="size-4 text-muted-foreground" />
-              Orders
-            </CommandItem>
-          )}
-          {canViewNav('Finance') && (
-            <>
-              <CommandItem onSelect={() => navigate('/finance')}>
-                <BarChart3 className="size-4 text-muted-foreground" />
-                Finance Overview
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/finance/revenue')}>
-                <TrendingUp className="size-4 text-muted-foreground" />
-                Revenue
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/finance/expenses')}>
-                <Receipt className="size-4 text-muted-foreground" />
-                Expenses
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/finance/pnl')}>
-                <FileText className="size-4 text-muted-foreground" />
-                P&L Report
-              </CommandItem>
-            </>
-          )}
-          {canViewNav('Settings') && (
-            <>
-              <CommandItem onSelect={() => navigate('/settings')}>
-                <Settings className="size-4 text-muted-foreground" />
-                Settings
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/settings/team')}>
-                <Users className="size-4 text-muted-foreground" />
-                Team
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/settings/platforms')}>
-                <Plug className="size-4 text-muted-foreground" />
-                Platforms
-              </CommandItem>
-              <CommandItem onSelect={() => navigate('/settings/warehouses')}>
-                <Building2 className="size-4 text-muted-foreground" />
-                Warehouses
-              </CommandItem>
-            </>
-          )}
+          <CommandItem onSelect={() => navigate('/products')}>
+            <Package className="size-4 text-muted-foreground" />
+            Products
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/inventory')}>
+            <BoxesIcon className="size-4 text-muted-foreground" />
+            Stock Overview
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/inventory/discrepancies')}>
+            <AlertTriangle className="size-4 text-muted-foreground" />
+            Discrepancies
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/inventory/movements')}>
+            <ArrowLeftRight className="size-4 text-muted-foreground" />
+            Stock Movements
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/orders')}>
+            <ShoppingCart className="size-4 text-muted-foreground" />
+            Orders
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/finance')}>
+            <BarChart3 className="size-4 text-muted-foreground" />
+            Finance Overview
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/finance/revenue')}>
+            <TrendingUp className="size-4 text-muted-foreground" />
+            Revenue
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/finance/expenses')}>
+            <Receipt className="size-4 text-muted-foreground" />
+            Expenses
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/finance/pnl')}>
+            <FileText className="size-4 text-muted-foreground" />
+            P&L Report
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/settings')}>
+            <Settings className="size-4 text-muted-foreground" />
+            Settings
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/settings/team')}>
+            <Users className="size-4 text-muted-foreground" />
+            Team
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/settings/platforms')}>
+            <Plug className="size-4 text-muted-foreground" />
+            Platforms
+          </CommandItem>
+          <CommandItem onSelect={() => navigate('/settings/warehouses')}>
+            <Building2 className="size-4 text-muted-foreground" />
+            Warehouses
+          </CommandItem>
         </CommandGroup>
       </CommandList>
     </CommandDialog>
