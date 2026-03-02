@@ -69,6 +69,36 @@ function toEndIso(dateStr: string): string {
   return d.toISOString();
 }
 
+/**
+ * Fetch all rows from a Supabase query using pagination.
+ * Supabase REST API defaults to 1000 rows max per request.
+ */
+async function fetchAllRows<T>(
+  supabase: SupabaseClient,
+  table: string,
+  select: string,
+  filters: { column: string; op: string; value: string }[]
+): Promise<T[]> {
+  const PAGE_SIZE = 1000;
+  const allRows: T[] = [];
+  let from = 0;
+
+  while (true) {
+    let query = supabase.from(table).select(select).range(from, from + PAGE_SIZE - 1);
+    for (const f of filters) {
+      if (f.op === "gte") query = query.gte(f.column, f.value);
+      else if (f.op === "lte") query = query.lte(f.column, f.value);
+      else if (f.op === "eq") query = query.eq(f.column, f.value);
+    }
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) break;
+    allRows.push(...(data as T[]));
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allRows;
+}
 
 // ── Products ─────────────────────────────────────────────────────────────
 
@@ -645,11 +675,19 @@ async function getPlatformComparison(
     ? toEndIso(args.end_date)
     : new Date().toISOString();
 
-  const { data: orders } = await supabase
-    .from("orders")
-    .select("total_amount, status, platform:platforms(name)")
-    .gte("ordered_at", startDate)
-    .lte("ordered_at", endDate);
+  const orders = await fetchAllRows<{
+    total_amount: number;
+    status: string;
+    platform: { name: string };
+  }>(
+    supabase,
+    "orders",
+    "total_amount, status, platform:platforms(name)",
+    [
+      { column: "ordered_at", op: "gte", value: startDate },
+      { column: "ordered_at", op: "lte", value: endDate },
+    ]
+  );
 
   let amazonOrders = 0,
     shopifyOrders = 0,
@@ -658,7 +696,7 @@ async function getPlatformComparison(
     amazonReturns = 0,
     shopifyReturns = 0;
 
-  for (const order of orders ?? []) {
+  for (const order of orders) {
     const platformName =
       (order.platform as unknown as { name: string })?.name ?? "";
     const amount = Number(order.total_amount ?? 0);
@@ -782,17 +820,26 @@ async function getReturnsAnalysis(supabase: SupabaseClient, args: Args) {
 
   const platformMap = await getPlatformMap(supabase);
 
-  const { data: orders, error } = await supabase
-    .from("orders")
-    .select(
-      "id, status, total_amount, platform_id, fulfillment_status, ordered_at, order_items(product_name, sku, quantity, total)"
-    )
-    .gte("ordered_at", startIso)
-    .lte("ordered_at", endIso);
+  // Use paginated fetch to get ALL orders (Supabase defaults to 1000 row limit)
+  const allOrders = await fetchAllRows<{
+    id: string;
+    status: string;
+    total_amount: number;
+    platform_id: string;
+    fulfillment_status: string;
+    ordered_at: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    order_items: any[];
+  }>(
+    supabase,
+    "orders",
+    "id, status, total_amount, platform_id, fulfillment_status, ordered_at, order_items(product_name, sku, quantity, total)",
+    [
+      { column: "ordered_at", op: "gte", value: startIso },
+      { column: "ordered_at", op: "lte", value: endIso },
+    ]
+  );
 
-  if (error) return { error: error.message };
-
-  const allOrders = orders ?? [];
   const totalOrders = allOrders.length;
 
   if (groupBy === "status") {
