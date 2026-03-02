@@ -21,7 +21,6 @@ Multi-channel ERP for Thevasa clothing brand (thevasa.in). Manages inventory, or
 ## Project Structure
 
 ```
-/Users/manan/Downloads/Product/Thevasa/ERP/
 ├── plan.md                          # Full implementation plan
 ├── CLAUDE.md                        # This file - project context
 ├── src/
@@ -114,8 +113,8 @@ SUPABASE_SERVICE_ROLE_KEY=
 AMAZON_SP_API_CLIENT_ID=
 AMAZON_SP_API_CLIENT_SECRET=
 AMAZON_SP_API_REFRESH_TOKEN=
-AMAZON_SP_API_MARKETPLACE_ID=A21TJRUUN4KGV
-SHOPIFY_STORE_URL=thevasa.myshopify.com
+AMAZON_SP_API_MARKETPLACE_ID=
+SHOPIFY_STORE_URL=
 SHOPIFY_ACCESS_TOKEN=
 SHOPIFY_WEBHOOK_SECRET=
 NEXT_PUBLIC_APP_URL=
