@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/sync-amazon-finances",
       "schedule": "15 */4 * * *"
+    },
+    {
+      "path": "/api/cron/sync-returns",
+      "schedule": "45 */4 * * *"
     }
   ]
 }

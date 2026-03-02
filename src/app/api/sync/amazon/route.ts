@@ -7,12 +7,13 @@ import { createClient } from '@/lib/supabase/server';
 import { syncFbaInventory } from '@/lib/amazon/inventory';
 import { syncAmazonOrders } from '@/lib/amazon/orders';
 import { syncAmazonFinances } from '@/lib/amazon/finances';
+import { syncReturnsAndDelivery } from '@/lib/amazon/returns';
 
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
 
-type SyncType = 'inventory' | 'orders' | 'finances' | 'all';
+type SyncType = 'inventory' | 'orders' | 'finances' | 'returns' | 'all';
 
 interface SyncRequestBody {
   teamId?: string;
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
       // Body may be empty — that's fine, we'll use defaults
     }
 
-    const syncType: SyncType = body.syncType && ['inventory', 'orders', 'finances', 'all'].includes(body.syncType)
+    const syncType: SyncType = body.syncType && ['inventory', 'orders', 'finances', 'returns', 'all'].includes(body.syncType)
       ? body.syncType
       : 'all';
 
@@ -130,6 +131,13 @@ export async function POST(request: NextRequest) {
       results.finances = await syncAmazonFinances(
         teamId,
         body.options?.orderId
+      );
+    }
+
+    if (syncType === 'returns' || syncType === 'all') {
+      results.returns = await syncReturnsAndDelivery(
+        teamId,
+        body.options?.daysBack ?? 90
       );
     }
 
