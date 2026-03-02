@@ -2,11 +2,19 @@
   "crons": [
     {
       "path": "/api/cron/sync-inventory",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 */4 * * *"
     },
     {
       "path": "/api/cron/sync-orders",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/sync-amazon-catalog",
+      "schedule": "30 */4 * * *"
+    },
+    {
+      "path": "/api/cron/sync-amazon-finances",
+      "schedule": "15 */4 * * *"
     }
   ]
 }

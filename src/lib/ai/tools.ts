@@ -166,6 +166,22 @@ export const aiTools: any[] = [
     parameters: obj({}),
   },
 
+  // ── Returns & RTO ─────────────────────────────────────────────────────
+  {
+    name: "get_returns_analysis",
+    description:
+      "Get returns, refunds, and RTO (Return to Origin) analysis. Returns rates, revenue impact, breakdown by platform, top returned products, and order status distribution (delivered, returned, cancelled, etc.).",
+    parameters: obj(
+      {
+        start_date: s(SchemaType.STRING, "Start date (YYYY-MM-DD)"),
+        end_date: s(SchemaType.STRING, "End date (YYYY-MM-DD)"),
+        group_by: s(SchemaType.STRING, "Group results by: summary, platform, product, status, trend. Default: summary"),
+        limit: s(SchemaType.INTEGER, "Max products to return when group_by=product (default 20)"),
+      },
+      ["start_date", "end_date"]
+    ),
+  },
+
   // ── Actions ──────────────────────────────────────────────────────────
   {
     name: "add_expense",

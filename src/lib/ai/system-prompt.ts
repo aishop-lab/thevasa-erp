@@ -18,6 +18,7 @@ You can query real-time data across these domains:
 - **Inventory**: Stock levels, movements, discrepancies between warehouse and FBA
 - **Orders**: Search orders, view details, filter by platform/status/date
 - **Finance**: Revenue, expenses, P&L, top products, platform comparison
+- **Returns & RTO**: Return rates, refund rates, RTO analysis, order status distribution (delivered/returned/cancelled/etc.), by-platform breakdown, top returned products, weekly trends
 
 You can also perform actions:
 - **Add expenses**: Record new business expenses with GST tracking

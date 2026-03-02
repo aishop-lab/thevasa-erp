@@ -106,7 +106,8 @@ Multi-channel ERP for Thevasa clothing brand (thevasa.in). Manages inventory, or
 4. **GraphQL for Shopify, REST for Amazon**: Following each platform's recommendations
 5. **Team-based RLS**: All tables secured with Row Level Security
 6. **TanStack React Query + Supabase Realtime**: Pull + push data strategy
-7. **AI Analyst Bot**: Gemini 2.0 Flash with 15 function-calling tools for querying all business domains + 2 write actions (add expense, adjust stock). Floating chat panel on dashboard.
+7. **AI Analyst Bot**: Gemini 2.0 Flash with 16 function-calling tools for querying all business domains + 2 write actions (add expense, adjust stock). Floating chat panel on dashboard.
+8. **Automated Amazon Sync**: Vercel Cron jobs every 4 hours for inventory, orders, catalog, and finances sync
 
 ## Environment Variables
 
@@ -132,7 +133,9 @@ GEMINI_API_KEY=
 - [x] Next.js 15 project initialized with App Router
 - [x] All dependencies installed (Supabase, shadcn/ui, TanStack, Recharts, etc.)
 - [x] shadcn/ui components installed (button, input, card, table, dialog, dropdown-menu, tabs, badge, sheet, form, select, separator, avatar, command, popover, calendar, label, textarea, checkbox, switch, tooltip, scroll-area, skeleton, alert, sonner)
-- [x] AI Analyst Bot (Gemini 2.0 Flash, 15 tools, floating chat panel, SSE streaming)
+- [x] AI Analyst Bot (Gemini 2.0 Flash, 16 tools, floating chat panel, SSE streaming)
+- [x] Automated Amazon sync cron jobs (every 4 hours: inventory, orders, catalog, finances)
+- [x] Returns & RTO analytics (hook + AI tool, order status distribution, by-platform, by-product, weekly trends)
 
 ### In Progress
 - [ ] Database migration SQL

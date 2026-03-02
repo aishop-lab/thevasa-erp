@@ -35,6 +35,8 @@ export async function executeToolCall(
       return getPlatformComparison(supabase, args);
     case "get_dashboard_stats":
       return getDashboardStats(supabase);
+    case "get_returns_analysis":
+      return getReturnsAnalysis(supabase, args);
     case "add_expense":
       return addExpense(supabase, args);
     case "adjust_stock":
@@ -757,6 +759,195 @@ async function getDashboardStats(supabase: SupabaseClient) {
     yesterday_revenue: yesterdayRevenue,
     pending_shipments: pendingShipments ?? 0,
     low_stock_count: lowStockCount,
+  };
+}
+
+// ── Returns & RTO ────────────────────────────────────────────────────────
+
+async function getReturnsAnalysis(supabase: SupabaseClient, args: Args) {
+  const startIso = toDateIso(args.start_date);
+  const endIso = toDateIso(args.end_date);
+  const groupBy = args.group_by ?? "summary";
+
+  const platformMap = await getPlatformMap(supabase);
+
+  const { data: orders, error } = await supabase
+    .from("orders")
+    .select(
+      "id, status, total_amount, platform_id, fulfillment_status, ordered_at, order_items(product_name, sku, quantity, total)"
+    )
+    .gte("ordered_at", startIso)
+    .lte("ordered_at", endIso);
+
+  if (error) return { error: error.message };
+
+  const allOrders = orders ?? [];
+  const totalOrders = allOrders.length;
+
+  if (groupBy === "status") {
+    // Full order status distribution
+    const statusCounts = new Map<string, { count: number; amount: number }>();
+    for (const o of allOrders) {
+      const st = o.status || "unknown";
+      const existing = statusCounts.get(st) ?? { count: 0, amount: 0 };
+      existing.count++;
+      existing.amount += Number(o.total_amount ?? 0);
+      statusCounts.set(st, existing);
+    }
+
+    return {
+      total_orders: totalOrders,
+      by_status: Array.from(statusCounts.entries())
+        .map(([status, { count, amount }]) => ({
+          status,
+          count,
+          percentage: totalOrders > 0 ? Math.round((count / totalOrders) * 10000) / 100 : 0,
+          amount,
+        }))
+        .sort((a, b) => b.count - a.count),
+    };
+  }
+
+  // Classify orders
+  const returned = allOrders.filter((o) => o.status === "returned");
+  const refunded = allOrders.filter((o) => o.status === "refunded");
+  const rto = allOrders.filter(
+    (o) =>
+      o.status === "cancelled" &&
+      (o.fulfillment_status === "fulfilled" || o.fulfillment_status === "returned")
+  );
+
+  if (groupBy === "platform") {
+    const groups = new Map<
+      string,
+      { returns: number; refunds: number; rto: number; total: number; amount: number }
+    >();
+
+    for (const o of allOrders) {
+      const name = platformMap.get(o.platform_id) ?? "other";
+      const g = groups.get(name) ?? { returns: 0, refunds: 0, rto: 0, total: 0, amount: 0 };
+      g.total++;
+      if (o.status === "returned") {
+        g.returns++;
+        g.amount += Number(o.total_amount ?? 0);
+      }
+      if (o.status === "refunded") {
+        g.refunds++;
+        g.amount += Number(o.total_amount ?? 0);
+      }
+      if (o.status === "cancelled" && (o.fulfillment_status === "fulfilled" || o.fulfillment_status === "returned")) {
+        g.rto++;
+      }
+      groups.set(name, g);
+    }
+
+    return {
+      by_platform: Array.from(groups.entries()).map(([platform, g]) => ({
+        platform,
+        returns: g.returns,
+        refunds: g.refunds,
+        rto: g.rto,
+        total_orders: g.total,
+        return_rate: g.total > 0 ? Math.round(((g.returns + g.refunds) / g.total) * 10000) / 100 : 0,
+        rto_rate: g.total > 0 ? Math.round((g.rto / g.total) * 10000) / 100 : 0,
+        revenue_impact: g.amount,
+      })),
+    };
+  }
+
+  if (groupBy === "product") {
+    const limit = args.limit ?? 20;
+    const productMap = new Map<
+      string,
+      { name: string; sku: string; returns: number; sold: number; amount: number }
+    >();
+
+    for (const order of allOrders) {
+      const isReturn = order.status === "returned" || order.status === "refunded";
+      const items = (order.order_items ?? []) as any[];
+      for (const item of items) {
+        const name = item.product_name ?? item.sku ?? "Unknown";
+        const existing = productMap.get(name) ?? { name, sku: item.sku ?? "", returns: 0, sold: 0, amount: 0 };
+        existing.sold += Number(item.quantity ?? 0);
+        if (isReturn) {
+          existing.returns += Number(item.quantity ?? 0);
+          existing.amount += Number(item.total ?? 0);
+        }
+        productMap.set(name, existing);
+      }
+    }
+
+    return {
+      top_returned_products: Array.from(productMap.values())
+        .filter((p) => p.returns > 0)
+        .map((p) => ({
+          product_name: p.name,
+          sku: p.sku,
+          returns: p.returns,
+          units_sold: p.sold,
+          return_rate: p.sold > 0 ? Math.round((p.returns / p.sold) * 10000) / 100 : 0,
+          revenue_impact: p.amount,
+        }))
+        .sort((a, b) => b.returns - a.returns)
+        .slice(0, limit),
+    };
+  }
+
+  if (groupBy === "trend") {
+    const weekMap = new Map<
+      string,
+      { returns: number; refunds: number; orders: number; weekLabel: string }
+    >();
+
+    for (const order of allOrders) {
+      if (!order.ordered_at) continue;
+      const d = new Date(order.ordered_at);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const weekStart = new Date(d.getFullYear(), d.getMonth(), diff);
+      const key = weekStart.toISOString().split("T")[0];
+
+      const g = weekMap.get(key) ?? {
+        returns: 0,
+        refunds: 0,
+        orders: 0,
+        weekLabel: `Week of ${weekStart.toLocaleDateString("en-IN", { month: "short", day: "numeric" })}`,
+      };
+      g.orders++;
+      if (order.status === "returned") g.returns++;
+      if (order.status === "refunded") g.refunds++;
+      weekMap.set(key, g);
+    }
+
+    return {
+      weekly_trend: Array.from(weekMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, g]) => ({
+          week: g.weekLabel,
+          date,
+          returns: g.returns,
+          refunds: g.refunds,
+          total_orders: g.orders,
+          return_rate: g.orders > 0 ? Math.round(((g.returns + g.refunds) / g.orders) * 10000) / 100 : 0,
+        })),
+    };
+  }
+
+  // Default: summary
+  const returnAmount = returned.reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
+  const refundAmount = refunded.reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
+
+  return {
+    total_orders: totalOrders,
+    total_returns: returned.length,
+    total_refunds: refunded.length,
+    total_rto: rto.length,
+    return_rate: totalOrders > 0 ? Math.round((returned.length / totalOrders) * 10000) / 100 : 0,
+    refund_rate: totalOrders > 0 ? Math.round((refunded.length / totalOrders) * 10000) / 100 : 0,
+    rto_rate: totalOrders > 0 ? Math.round((rto.length / totalOrders) * 10000) / 100 : 0,
+    return_amount: returnAmount,
+    refund_amount: refundAmount,
+    total_revenue_impact: returnAmount + refundAmount,
   };
 }
 
