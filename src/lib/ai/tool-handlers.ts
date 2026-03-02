@@ -55,9 +55,20 @@ async function getPlatformMap(
   return new Map((data ?? []).map((p) => [p.id, p.name.toLowerCase()]));
 }
 
-function toDateIso(dateStr: string): string {
-  return new Date(dateStr).toISOString();
+function toStartIso(dateStr: string): string {
+  // Start of day: YYYY-MM-DDT00:00:00.000Z
+  const d = new Date(dateStr);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString();
 }
+
+function toEndIso(dateStr: string): string {
+  // End of day: YYYY-MM-DDT23:59:59.999Z
+  const d = new Date(dateStr);
+  d.setUTCHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
 
 // ── Products ─────────────────────────────────────────────────────────────
 
@@ -251,9 +262,9 @@ async function getStockMovements(supabase: SupabaseClient, args: Args) {
   if (args.movement_type)
     query = query.eq("movement_type", args.movement_type as any);
   if (args.start_date)
-    query = query.gte("created_at", toDateIso(args.start_date));
+    query = query.gte("created_at", toStartIso(args.start_date));
   if (args.end_date)
-    query = query.lte("created_at", toDateIso(args.end_date));
+    query = query.lte("created_at", toEndIso(args.end_date));
 
   const limit = args.limit ?? 50;
   query = query.limit(limit);
@@ -296,9 +307,9 @@ async function searchOrders(supabase: SupabaseClient, args: Args) {
 
   if (args.status) query = query.eq("status", args.status as any);
   if (args.start_date)
-    query = query.gte("ordered_at", toDateIso(args.start_date));
+    query = query.gte("ordered_at", toStartIso(args.start_date));
   if (args.end_date)
-    query = query.lte("ordered_at", toDateIso(args.end_date));
+    query = query.lte("ordered_at", toEndIso(args.end_date));
   if (args.search) {
     query = query.or(
       `order_number.ilike.%${args.search}%,customer_name.ilike.%${args.search}%`
@@ -388,8 +399,8 @@ async function getOrderDetails(supabase: SupabaseClient, args: Args) {
 // ── Finance ──────────────────────────────────────────────────────────────
 
 async function getRevenueOverview(supabase: SupabaseClient, args: Args) {
-  const startIso = toDateIso(args.start_date);
-  const endIso = toDateIso(args.end_date);
+  const startIso = toStartIso(args.start_date);
+  const endIso = toEndIso(args.end_date);
 
   const [currentRes, prevRes] = await Promise.all([
     supabase
@@ -401,8 +412,8 @@ async function getRevenueOverview(supabase: SupabaseClient, args: Args) {
       ? supabase
           .from("sales_revenue")
           .select("gross_revenue, discount, net_revenue, tax_collected")
-          .gte("date", toDateIso(args.compare_start_date))
-          .lte("date", toDateIso(args.compare_end_date))
+          .gte("date", toStartIso(args.compare_start_date))
+          .lte("date", toEndIso(args.compare_end_date))
       : Promise.resolve({ data: [] as any[], error: null }),
   ]);
 
@@ -432,8 +443,8 @@ async function getRevenueOverview(supabase: SupabaseClient, args: Args) {
 }
 
 async function getExpensesSummary(supabase: SupabaseClient, args: Args) {
-  const startIso = toDateIso(args.start_date);
-  const endIso = toDateIso(args.end_date);
+  const startIso = toStartIso(args.start_date);
+  const endIso = toEndIso(args.end_date);
 
   const [expRes, feesRes] = await Promise.all([
     supabase
@@ -489,8 +500,8 @@ async function getExpensesSummary(supabase: SupabaseClient, args: Args) {
 }
 
 async function getPnlReport(supabase: SupabaseClient, args: Args) {
-  const startIso = toDateIso(args.start_date);
-  const endIso = toDateIso(args.end_date);
+  const startIso = toStartIso(args.start_date);
+  const endIso = toEndIso(args.end_date);
 
   const [revenueRes, expensesRes, feesRes, cogsRes] = await Promise.all([
     supabase
@@ -571,8 +582,8 @@ async function getPnlReport(supabase: SupabaseClient, args: Args) {
 }
 
 async function getTopProducts(supabase: SupabaseClient, args: Args) {
-  const startIso = toDateIso(args.start_date);
-  const endIso = toDateIso(args.end_date);
+  const startIso = toStartIso(args.start_date);
+  const endIso = toEndIso(args.end_date);
   const limit = args.limit ?? 10;
 
   const { data: orders, error: ordersErr } = await supabase
@@ -623,7 +634,7 @@ async function getPlatformComparison(
   args: Args
 ) {
   const startDate = args.start_date
-    ? toDateIso(args.start_date)
+    ? toStartIso(args.start_date)
     : (() => {
         const d = new Date();
         d.setDate(1);
@@ -631,7 +642,7 @@ async function getPlatformComparison(
         return d.toISOString();
       })();
   const endDate = args.end_date
-    ? toDateIso(args.end_date)
+    ? toEndIso(args.end_date)
     : new Date().toISOString();
 
   const { data: orders } = await supabase
@@ -765,8 +776,8 @@ async function getDashboardStats(supabase: SupabaseClient) {
 // ── Returns & RTO ────────────────────────────────────────────────────────
 
 async function getReturnsAnalysis(supabase: SupabaseClient, args: Args) {
-  const startIso = toDateIso(args.start_date);
-  const endIso = toDateIso(args.end_date);
+  const startIso = toStartIso(args.start_date);
+  const endIso = toEndIso(args.end_date);
   const groupBy = args.group_by ?? "summary";
 
   const platformMap = await getPlatformMap(supabase);
