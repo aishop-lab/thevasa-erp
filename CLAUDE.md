@@ -16,6 +16,7 @@ Multi-channel ERP for Thevasa clothing brand (thevasa.in). Manages inventory, or
 - **Tables**: TanStack Table
 - **Charts**: Recharts
 - **Forms**: React Hook Form + Zod
+- **AI**: Google Gemini 2.0 Flash (`@google/generative-ai`) with function calling
 - **Deploy**: Vercel + Supabase Cloud
 
 ## Project Structure
@@ -38,6 +39,7 @@ Multi-channel ERP for Thevasa clothing brand (thevasa.in). Manages inventory, or
 │   ├── components/
 │   │   ├── ui/                      # shadcn/ui components
 │   │   ├── layout/                  # Sidebar, header, breadcrumbs
+│   │   ├── ai/                      # AI chat button + panel
 │   │   ├── dashboard/               # Stats, charts, alerts
 │   │   ├── inventory/               # Stock tables, adjustments
 │   │   ├── orders/                  # Order tables, filters
@@ -45,6 +47,7 @@ Multi-channel ERP for Thevasa clothing brand (thevasa.in). Manages inventory, or
 │   │   └── finance/                 # Revenue, expense, P&L, GST
 │   ├── lib/
 │   │   ├── supabase/                # Client, server, middleware, types
+│   │   ├── ai/                      # Gemini client, tools, handlers, prompt
 │   │   ├── amazon/                  # SP-API client + sync functions
 │   │   ├── shopify/                 # GraphQL client + sync functions
 │   │   └── utils/                   # Currency, date, SKU helpers
@@ -103,6 +106,7 @@ Multi-channel ERP for Thevasa clothing brand (thevasa.in). Manages inventory, or
 4. **GraphQL for Shopify, REST for Amazon**: Following each platform's recommendations
 5. **Team-based RLS**: All tables secured with Row Level Security
 6. **TanStack React Query + Supabase Realtime**: Pull + push data strategy
+7. **AI Analyst Bot**: Gemini 2.0 Flash with 15 function-calling tools for querying all business domains + 2 write actions (add expense, adjust stock). Floating chat panel on dashboard.
 
 ## Environment Variables
 
@@ -119,6 +123,7 @@ SHOPIFY_ACCESS_TOKEN=
 SHOPIFY_WEBHOOK_SECRET=
 NEXT_PUBLIC_APP_URL=
 CRON_SECRET=
+GEMINI_API_KEY=
 ```
 
 ## Current Implementation Status
@@ -127,6 +132,7 @@ CRON_SECRET=
 - [x] Next.js 15 project initialized with App Router
 - [x] All dependencies installed (Supabase, shadcn/ui, TanStack, Recharts, etc.)
 - [x] shadcn/ui components installed (button, input, card, table, dialog, dropdown-menu, tabs, badge, sheet, form, select, separator, avatar, command, popover, calendar, label, textarea, checkbox, switch, tooltip, scroll-area, skeleton, alert, sonner)
+- [x] AI Analyst Bot (Gemini 2.0 Flash, 15 tools, floating chat panel, SSE streaming)
 
 ### In Progress
 - [ ] Database migration SQL
