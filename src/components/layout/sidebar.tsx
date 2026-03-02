@@ -180,12 +180,15 @@ function NavItem({
 function SidebarContent({ collapsed }: { collapsed: boolean }) {
   const permissions = usePermissions()
 
+  // While loading or if role is unknown, show all navigation items
+  const shouldFilter = !permissions.isLoading && permissions.role !== null
+
   // Filter navigation items and their children based on role
   const filteredNav = navigation
-    .filter((item) => permissions.canViewNav(item.navSection))
+    .filter((item) => !shouldFilter || permissions.canViewNav(item.navSection))
     .map((item) => {
       // For Settings, filter children by settingsKey
-      if (item.navSection === 'Settings' && item.children) {
+      if (shouldFilter && item.navSection === 'Settings' && item.children) {
         const visibleChildren = item.children.filter(
           (child) => !child.settingsKey || permissions.canViewSettingsChild(child.settingsKey)
         )
